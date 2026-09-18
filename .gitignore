@@ -94,3 +94,12 @@ CHANGELOG.ignore.md
 # Python bytecode files
 __pycache__/
 *.pyc
+
+# CodeGraph output. `.codegraph/` carries its own .gitignore; these files are
+# written to the repository root and are local to the machine that indexed it.
+CODE_GRAPH.md
+code-graph.png
+code-graph.svg
+
+# Local notes kept in the working tree, not part of the project.
+prompt.md
