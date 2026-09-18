@@ -842,6 +842,9 @@ pub struct Config {
     /// auto: Use the OS-specific keyring service if available, otherwise use a file.
     pub cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
 
+    /// Whether an API key in the process environment may be used as credentials.
+    pub use_env_api_key: bool,
+
     /// Definition for MCP servers that Codex can reach out to for tool calls.
     pub mcp_servers: Constrained<HashMap<String, McpServerConfig>>,
 
@@ -4230,6 +4233,7 @@ impl Config {
                     env!("CARGO_PKG_VERSION"),
                 ),
             },
+            use_env_api_key: cfg.use_env_api_key.unwrap_or(true),
             mcp_servers,
             non_prefixed_mcp_tool_servers,
             mcp_enterprise_managed_auth,

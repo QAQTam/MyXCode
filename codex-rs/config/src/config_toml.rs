@@ -278,6 +278,14 @@ pub struct ConfigToml {
     #[serde(default)]
     pub cli_auth_credentials_store: Option<AuthCredentialsStoreMode>,
 
+    /// Whether an API key in the process environment may be used as credentials.
+    ///
+    /// When true (the default), `CODEX_API_KEY` takes precedence over any stored
+    /// auth, and `OPENAI_API_KEY` is used when nothing else supplies
+    /// credentials. Set this to false to ignore both variables entirely.
+    #[serde(default)]
+    pub use_env_api_key: Option<bool>,
+
     /// Definition for MCP servers that Codex can reach out to for tool calls.
     #[serde(default)]
     // Uses the raw MCP input shape (custom deserialization) rather than `McpServerConfig`.

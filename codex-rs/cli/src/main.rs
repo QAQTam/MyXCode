@@ -2193,7 +2193,7 @@ async fn load_exec_server_remote_auth_provider(
         read_codex_access_token_from_env().ok_or_else(|| {
             anyhow::anyhow!("CODEX_ACCESS_TOKEN is required when --use-agent-identity-auth is set")
         })?;
-        let auth = AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ false)
+        let auth = AuthManager::shared_from_config(config, config.use_env_api_key)
             .await?
             .auth()
             .await
@@ -2311,8 +2311,7 @@ async fn load_exec_server_remote_auth(
     config: &codex_core::config::Config,
     missing_auth_error: &'static str,
 ) -> anyhow::Result<(Arc<AuthManager>, codex_login::CodexAuth)> {
-    let auth_manager =
-        AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ true).await?;
+    let auth_manager = AuthManager::shared_from_config(config, config.use_env_api_key).await?;
 
     let auth = match auth_manager.auth().await {
         Some(auth) => auth,
@@ -2473,8 +2472,7 @@ async fn run_debug_prompt_input_command(
     let user_instructions_provider = Arc::new(CodexHomeUserInstructionsProvider::new(
         config.codex_home.clone(),
     ));
-    let auth_manager =
-        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false).await?;
+    let auth_manager = AuthManager::shared_from_config(&config, config.use_env_api_key).await?;
     let mut extensions = codex_extension_api::ExtensionRegistryBuilder::new();
     codex_git_attribution::install(
         &mut extensions,
@@ -2520,8 +2518,7 @@ async fn run_debug_models_command(
             .cli_overrides(cli_overrides)
             .build()
             .await?;
-        let auth_manager =
-            AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ true).await?;
+        let auth_manager = AuthManager::shared_from_config(&config, config.use_env_api_key).await?;
         let models_manager = build_models_manager(&config, auth_manager);
         models_manager
             .raw_model_catalog(

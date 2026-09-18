@@ -801,10 +801,9 @@ pub async fn run_main_with_transport_options(
     }
     drop(unix_socket_startup_lock);
 
-    let auth_manager =
-        AuthManager::shared_from_config(&config, /*enable_codex_api_key_env*/ false)
-            .await
-            .map_err(std::io::Error::other)?;
+    let auth_manager = AuthManager::shared_from_config(&config, config.use_env_api_key)
+        .await
+        .map_err(std::io::Error::other)?;
 
     let remote_control_enabled = remote_control_policy == RemoteControlPolicy::Allowed
         && remote_control_explicitly_requested

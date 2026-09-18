@@ -2244,6 +2244,122 @@ async fn load_auth_keeps_codex_api_key_env_precedence() {
     assert_eq!(auth.api_key(), Some("sk-env"));
 }
 
+/// The bring-your-own-key path: exporting `OPENAI_API_KEY` is enough to get a
+/// session, with nothing written to `auth.json`.
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn load_auth_falls_back_to_openai_api_key_env() {
+    let codex_home = tempdir().unwrap();
+    let _access_token_guard = remove_access_token_env_var();
+    let _codex_key_guard = EnvVarGuard::remove(CODEX_API_KEY_ENV_VAR);
+    let _openai_key_guard = EnvVarGuard::set(OPENAI_API_KEY_ENV_VAR, "sk-openai");
+
+    let auth = super::load_auth(
+        codex_home.path(),
+        /*enable_codex_api_key_env*/ true,
+        AuthCredentialsStoreMode::File,
+        /*allowed_login_methods*/ None,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::Direct,
+        /*agent_identity_authapi_base_url*/ None,
+        &crate::test_support::transport_default_auth_route_config(),
+    )
+    .await
+    .expect("env auth should load")
+    .expect("env auth should be present");
+
+    assert_eq!(auth.api_key(), Some("sk-openai"));
+}
+
+/// `CODEX_API_KEY` is the explicit opt-in and outranks the ambient key.
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn load_auth_prefers_codex_api_key_over_openai_api_key_env() {
+    let codex_home = tempdir().unwrap();
+    let _access_token_guard = remove_access_token_env_var();
+    let _codex_key_guard = EnvVarGuard::set(CODEX_API_KEY_ENV_VAR, "sk-codex");
+    let _openai_key_guard = EnvVarGuard::set(OPENAI_API_KEY_ENV_VAR, "sk-openai");
+
+    let auth = super::load_auth(
+        codex_home.path(),
+        /*enable_codex_api_key_env*/ true,
+        AuthCredentialsStoreMode::File,
+        /*allowed_login_methods*/ None,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::Direct,
+        /*agent_identity_authapi_base_url*/ None,
+        &crate::test_support::transport_default_auth_route_config(),
+    )
+    .await
+    .expect("env auth should load")
+    .expect("env auth should be present");
+
+    assert_eq!(auth.api_key(), Some("sk-codex"));
+}
+
+/// A stored credential still wins, so an `OPENAI_API_KEY` exported for some
+/// other tool cannot silently move an existing session onto API billing.
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn load_auth_prefers_stored_auth_over_openai_api_key_env() {
+    let codex_home = tempdir().unwrap();
+    let _access_token_guard = remove_access_token_env_var();
+    let _codex_key_guard = EnvVarGuard::remove(CODEX_API_KEY_ENV_VAR);
+    let _openai_key_guard = EnvVarGuard::set(OPENAI_API_KEY_ENV_VAR, "sk-ambient");
+    login_with_api_key(
+        codex_home.path(),
+        "sk-stored",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::Direct,
+    )
+    .expect("stored auth should be written");
+
+    let auth = super::load_auth(
+        codex_home.path(),
+        /*enable_codex_api_key_env*/ true,
+        AuthCredentialsStoreMode::File,
+        /*allowed_login_methods*/ None,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::Direct,
+        /*agent_identity_authapi_base_url*/ None,
+        &crate::test_support::transport_default_auth_route_config(),
+    )
+    .await
+    .expect("stored auth should load")
+    .expect("stored auth should be present");
+
+    assert_eq!(auth.api_key(), Some("sk-stored"));
+}
+
+/// `use_env_api_key = false` turns both environment variables off.
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn load_auth_ignores_env_api_keys_when_disabled() {
+    let codex_home = tempdir().unwrap();
+    let _access_token_guard = remove_access_token_env_var();
+    let _codex_key_guard = EnvVarGuard::set(CODEX_API_KEY_ENV_VAR, "sk-codex");
+    let _openai_key_guard = EnvVarGuard::set(OPENAI_API_KEY_ENV_VAR, "sk-openai");
+
+    let auth = super::load_auth(
+        codex_home.path(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*allowed_login_methods*/ None,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::Direct,
+        /*agent_identity_authapi_base_url*/ None,
+        &crate::test_support::transport_default_auth_route_config(),
+    )
+    .await
+    .expect("load should succeed");
+
+    assert_eq!(auth, None);
+}
+
 #[tokio::test]
 #[serial(codex_auth_env)]
 async fn enforce_login_restrictions_logs_out_for_method_mismatch() {

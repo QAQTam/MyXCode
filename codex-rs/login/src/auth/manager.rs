@@ -1481,7 +1481,8 @@ async fn load_auth(
     agent_identity_authapi_base_url: Option<&str>,
     auth_route_config: &AuthRouteConfig,
 ) -> std::io::Result<Option<CodexAuth>> {
-    // API key via env var takes precedence over any other auth method.
+    // `CODEX_API_KEY` is an explicit opt-in and takes precedence over any other
+    // auth method.
     if enable_codex_api_key_env
         && auth_mode_is_allowed(allowed_login_methods, AuthMode::ApiKey)
         && let Some(api_key) = read_codex_api_key_from_env()
@@ -1555,7 +1556,24 @@ async fn load_auth(
     );
     let auth_dot_json = match storage.load()? {
         Some(auth) => auth,
-        None => return Ok(None),
+        None => {
+            // Nothing was persisted, so fall back to an ambient
+            // `OPENAI_API_KEY`. This is the bring-your-own-key path: exporting a
+            // key is enough to get a working session instead of a login prompt,
+            // and nothing has to be written to auth.json.
+            //
+            // It deliberately runs last. A Codex login or an explicit
+            // `CODEX_API_KEY` still wins, so an `OPENAI_API_KEY` that the user
+            // exported for some other tool cannot silently move an existing
+            // ChatGPT session onto API billing.
+            if enable_codex_api_key_env
+                && auth_mode_is_allowed(allowed_login_methods, AuthMode::ApiKey)
+                && let Some(api_key) = read_openai_api_key_from_env()
+            {
+                return Ok(Some(CodexAuth::from_api_key(api_key.as_str())));
+            }
+            return Ok(None);
+        }
     };
     if !auth_mode_is_allowed(allowed_login_methods, auth_dot_json.resolved_mode()) {
         return Ok(None);

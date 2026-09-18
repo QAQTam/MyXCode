@@ -248,6 +248,25 @@ async fn load_config_applies_optional_mcp_startup_grace() -> std::io::Result<()>
 }
 
 #[tokio::test]
+async fn load_config_resolves_use_env_api_key() -> anyhow::Result<()> {
+    let codex_home = tempdir()?;
+    for (toml, expected) in [
+        ("", true),
+        ("use_env_api_key = true", true),
+        ("use_env_api_key = false", false),
+    ] {
+        let config = Config::load_from_base_config_with_overrides(
+            toml::from_str(toml)?,
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+        assert_eq!(config.use_env_api_key, expected);
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn load_config_resolves_thread_unload_delay() -> anyhow::Result<()> {
     let codex_home = tempdir()?;
     for (toml, seconds) in [

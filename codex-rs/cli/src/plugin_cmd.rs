@@ -750,7 +750,7 @@ async fn load_plugin_command_context(
 }
 
 pub(crate) async fn load_cli_auth_manager(config: &Config) -> Result<Arc<AuthManager>> {
-    Ok(AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ true).await?)
+    Ok(AuthManager::shared_from_config(config, config.use_env_api_key).await?)
 }
 
 struct PluginSelection {

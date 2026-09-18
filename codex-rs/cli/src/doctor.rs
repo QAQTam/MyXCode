@@ -397,7 +397,7 @@ async fn build_report(
             )
             .await;
             let auth_manager_result =
-                AuthManager::shared_from_config(config, /*enable_codex_api_key_env*/ true).await;
+                AuthManager::shared_from_config(config, config.use_env_api_key).await;
             let auth_manager = auth_manager_result.as_ref().ok().cloned();
             let reachability_plan = provider_reachability_plan(config);
             #[cfg(target_os = "macos")]

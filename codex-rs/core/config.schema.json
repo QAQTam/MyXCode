@@ -7380,6 +7380,11 @@
       ],
       "description": "Collection of settings that are specific to the TUI."
     },
+    "use_env_api_key": {
+      "default": null,
+      "description": "Whether an API key in the process environment may be used as credentials.\n\nWhen true (the default), `CODEX_API_KEY` takes precedence over any stored auth, and `OPENAI_API_KEY` is used when nothing else supplies credentials. Set this to false to ignore both variables entirely.",
+      "type": "boolean"
+    },
     "web_search": {
       "allOf": [
         {
