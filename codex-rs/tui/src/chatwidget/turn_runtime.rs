@@ -145,7 +145,7 @@ impl ChatWidget {
         self.transcript.saw_copy_source_this_turn = false;
         // If a stream is currently active, finalize it.
         self.flush_answer_and_plan_streams();
-        self.flush_interrupt_queue();
+        self.flush_interrupt_activity();
         self.finish_dynamic_activity();
         self.flush_unified_exec_wait_streak();
         self.flush_completed_tool_activity();
@@ -316,7 +316,7 @@ impl ChatWidget {
     pub(super) fn finalize_turn(&mut self) {
         self.status_line_metrics.finish_turn(/*duration_ms*/ None);
         self.flush_answer_and_plan_streams();
-        self.flush_interrupt_queue();
+        self.flush_interrupt_activity();
         self.finish_dynamic_activity();
         if self.status_state.reasoning_resume_turn_id.is_some() {
             self.on_agent_reasoning_final();
