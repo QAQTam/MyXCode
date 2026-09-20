@@ -56,6 +56,7 @@ pub enum RemoteCompactionSupport {
 /// that the active provider marks unsupported here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderCapabilities {
+    /// Wire adapter used to encode and decode model requests for this provider.
     pub response_adapter: ResponseAdapter,
     pub namespace_tools: bool,
     pub image_generation: bool,
