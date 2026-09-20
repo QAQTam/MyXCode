@@ -12,7 +12,9 @@ use codex_api::subagent_header;
 use codex_client::EncodedJsonBody;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
+use codex_mycode_model_wire::CanonicalRequest;
 use codex_mycode_model_wire::ToolPlan;
+use codex_mycode_model_wire::build_chat_request;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -72,9 +74,12 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
     )]
     pub async fn stream_request(
         &self,
-        body: Value,
+        request: CanonicalRequest,
         options: ChatOptions,
     ) -> Result<ResponseStream, ApiError> {
+        let body = build_chat_request(&request).map_err(|error| ApiError::InvalidRequest {
+            message: error.to_string(),
+        })?;
         let ChatOptions {
             session_id,
             session_source,

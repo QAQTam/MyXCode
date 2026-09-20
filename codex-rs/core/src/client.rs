@@ -79,7 +79,6 @@ use codex_mycode_model_wire::CanonicalRequest;
 use codex_mycode_model_wire::CanonicalToolChoice;
 use codex_mycode_model_wire::ToolPlan;
 use codex_mycode_model_wire::WireCapabilities;
-use codex_mycode_model_wire::build_chat_request;
 use codex_otel::SessionTelemetry;
 use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
 use codex_otel::current_span_w3c_trace_context;
@@ -1823,9 +1822,6 @@ impl ModelClientSession {
             stream: true,
             provider_metadata: responses_metadata.client_metadata().into_iter().collect(),
         };
-        let body = build_chat_request(&canonical_request)
-            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
-
         let auth_manager = self.client.state.provider.auth_manager();
         let mut auth_recovery = auth_manager
             .as_ref()
@@ -1875,7 +1871,7 @@ impl ModelClientSession {
             );
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.add_request_headers(&mut options.extra_headers);
-            inference_trace_attempt.record_started(&body);
+            inference_trace_attempt.record_started(&canonical_request);
 
             let client = ChatCompletionsClient::new(
                 transport,
@@ -1883,7 +1879,10 @@ impl ModelClientSession {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
-            match client.stream_request(body.clone(), options).await {
+            match client
+                .stream_request(canonical_request.clone(), options)
+                .await
+            {
                 Ok(stream) => {
                     let (stream, _) = map_response_stream(
                         stream,

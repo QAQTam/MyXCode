@@ -5,9 +5,10 @@ use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::TokenUsage;
 use codex_tools::ToolSpec;
+use serde::Serialize;
 
 /// Canonical request sent to a wire adapter.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct CanonicalRequest {
     pub model: String,
     pub instructions: String,
@@ -20,7 +21,8 @@ pub struct CanonicalRequest {
 }
 
 /// Canonical tool selection for a request.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CanonicalToolChoice {
     Auto,
     None,
