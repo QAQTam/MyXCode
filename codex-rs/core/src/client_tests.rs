@@ -826,6 +826,109 @@ async fn chat_completions_adapter_streams_canonical_events() -> anyhow::Result<(
     Ok(())
 }
 
+#[tokio::test]
+async fn chat_completions_adapter_encodes_canonical_tool_history() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(/*status*/ 200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(concat!(
+                    "data: {\"id\":\"chat-2\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                    "data: [DONE]\n\n",
+                )),
+        )
+        .expect(/*requests*/ 1)
+        .mount(&server)
+        .await;
+
+    let mut provider =
+        create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        RESPONSE_ADAPTER_HEADER.to_string(),
+        "chat_completions".into(),
+    )]));
+    let mut client = test_model_client(SessionSource::Cli);
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .provider = create_model_provider(provider, /*auth_manager*/ None);
+    let prompt = Prompt {
+        input: vec![
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "exec_command".to_string(),
+                namespace: None,
+                arguments: r#"{"cmd":"printf ok"}"#.to_string(),
+                encrypted_function_args: None,
+                call_id: "call-1".to_string(),
+                internal_chat_message_metadata_passthrough: None,
+            },
+            ResponseItem::from(ResponseInputItem::FunctionCallOutput {
+                call_id: "call-1".to_string(),
+                output: FunctionCallOutputPayload::from_text("ok".to_string()),
+            }),
+        ],
+        base_instructions: BaseInstructions {
+            text: String::new(),
+            provenance: None,
+        },
+        ..Default::default()
+    };
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let mut session = client.new_session();
+    let mut stream = session
+        .stream(
+            &prompt,
+            &test_model_info(),
+            &test_session_telemetry(),
+            /*effort*/ None,
+            codex_protocol::config_types::ReasoningSummary::None,
+            /*service_tier*/ None,
+            &responses_metadata,
+            &InferenceTraceContext::disabled(),
+        )
+        .await?;
+    while let Some(event) = stream.next().await {
+        if matches!(event?, ResponseEvent::Completed { .. }) {
+            break;
+        }
+    }
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
+    assert_eq!(
+        body["messages"],
+        json!([
+            {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "exec_command",
+                        "arguments": "{\"cmd\":\"printf ok\"}",
+                    }
+                }]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-1",
+                "content": "ok",
+            }
+        ])
+    );
+    Ok(())
+}
+
 #[test]
 fn responses_lite_prefix_ids_track_thread_and_payload() -> anyhow::Result<()> {
     let thread_id = ThreadId::new();
