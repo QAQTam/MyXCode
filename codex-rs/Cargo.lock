@@ -4131,6 +4131,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-mycode-chat-adapter"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "codex-api",
+ "codex-client",
+ "codex-mycode-model-wire",
+ "codex-protocol",
+ "eventsource-stream",
+ "futures",
+ "http 1.4.0",
+ "pretty_assertions",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "codex-mycode-model-wire"
 version = "0.0.0"
 dependencies = [
