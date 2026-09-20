@@ -4131,6 +4131,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-mycode-model-wire"
+version = "0.0.0"
+dependencies = [
+ "codex-protocol",
+ "codex-tools",
+ "pretty_assertions",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "codex-network-proxy"
 version = "0.0.0"
 dependencies = [
