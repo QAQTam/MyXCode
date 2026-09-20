@@ -12,6 +12,7 @@ pub(crate) mod safety_buffering;
 pub(crate) mod search;
 pub(crate) mod sse;
 pub(crate) mod telemetry;
+pub(crate) mod transport;
 
 pub use crate::requests::headers::build_session_headers;
 pub use codex_client::RequestTelemetry;
@@ -116,5 +117,7 @@ pub use crate::search::TimeOperation;
 pub use crate::search::WeatherOperation;
 pub use crate::telemetry::SseTelemetry;
 pub use crate::telemetry::WebsocketTelemetry;
+pub use crate::transport::ResponseTransport;
+pub use crate::transport::ResponseTransportFuture;
 pub use codex_protocol::protocol::RealtimeAudioFrame;
 pub use codex_protocol::protocol::RealtimeEvent;

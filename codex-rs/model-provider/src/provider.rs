@@ -6,7 +6,12 @@ use std::sync::Arc;
 
 use codex_api::ApiError;
 use codex_api::Provider;
+use codex_api::RequestTelemetry;
+use codex_api::ReqwestTransport;
+use codex_api::ResponseTransport;
+use codex_api::ResponsesClient;
 use codex_api::SharedAuthProvider;
+use codex_api::SseTelemetry;
 use codex_api::TransportError;
 use codex_api::is_azure_responses_provider;
 use codex_login::AuthManager;
@@ -228,6 +233,25 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
             self.info()
                 .to_api_provider(auth.as_ref().map(CodexAuth::auth_mode))
         })
+    }
+
+    /// Builds the response transport used for one streaming model request.
+    ///
+    /// The default transport speaks the Responses API. Providers that speak a
+    /// different wire format can override this method while leaving the agent
+    /// loop and its canonical request/event types unchanged.
+    fn response_transport(
+        &self,
+        transport: ReqwestTransport,
+        provider: Provider,
+        auth: SharedAuthProvider,
+        request_telemetry: Option<Arc<dyn RequestTelemetry>>,
+        sse_telemetry: Option<Arc<dyn SseTelemetry>>,
+    ) -> Arc<dyn ResponseTransport> {
+        Arc::new(
+            ResponsesClient::new(transport, provider, auth)
+                .with_telemetry(request_telemetry, sse_telemetry),
+        )
     }
 
     /// Resolves routing for Responses HTTP, compaction, and WebSocket handshakes.
