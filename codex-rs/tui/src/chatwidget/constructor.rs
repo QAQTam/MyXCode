@@ -145,6 +145,7 @@ impl ChatWidget {
             windows_sandbox_elevated_setup_complete: false,
             token_info: None,
             token_usage_pending: false,
+            status_line_metrics: status_line_metrics::StatusLineMetrics::default(),
             rate_limit_snapshots_by_limit_id: BTreeMap::new(),
             refreshing_status_outputs: Vec::new(),
             next_status_refresh_request_id: 0,

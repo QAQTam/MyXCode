@@ -71,6 +71,60 @@ async fn token_count_none_resets_context_indicator() {
 }
 
 #[tokio::test]
+async fn status_line_runtime_metrics_render_cache_context_duration_and_rate() {
+    let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let previous_usage = TokenUsage {
+        output_tokens: 100,
+        ..TokenUsage::default()
+    };
+    let previous_info = TokenUsageInfo {
+        total_token_usage: previous_usage.clone(),
+        last_token_usage: previous_usage,
+        model_context_window: Some(32_000),
+    };
+    chat.status_line_metrics.start_turn(Some(&previous_info));
+
+    let current_usage = TokenUsage {
+        input_tokens: 21_500,
+        cached_input_tokens: 19_350,
+        output_tokens: 500,
+        total_tokens: 22_000,
+        ..TokenUsage::default()
+    };
+    let current_info = TokenUsageInfo {
+        total_token_usage: TokenUsage {
+            output_tokens: 600,
+            ..TokenUsage::default()
+        },
+        last_token_usage: current_usage,
+        model_context_window: Some(32_000),
+    };
+    chat.status_line_metrics.observe_usage(&current_info);
+    chat.status_line_metrics
+        .finish_turn(/*duration_ms*/ Some(2_000));
+    chat.set_token_info(Some(current_info));
+    chat.local_settings.tui.status_line = Some(vec!["runtime-metrics".to_string()]);
+    chat.refresh_status_line();
+
+    assert_eq!(
+        status_line_text(&chat),
+        Some("cache 90.0% · ctx 50% · 2.0s · 250.0 tok/s".to_string())
+    );
+
+    chat.show_welcome_banner = false;
+    let width = 80;
+    let height = chat.desired_height(width);
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("create terminal");
+    terminal
+        .draw(|frame| chat.render(frame.area(), frame.buffer_mut()))
+        .expect("draw runtime metrics footer");
+    assert_chatwidget_snapshot!(
+        "status_line_runtime_metrics_footer",
+        normalized_backend_snapshot(terminal.backend())
+    );
+}
+
+#[tokio::test]
 async fn resumed_session_hides_unknown_token_usage_until_an_update_arrives() {
     let (mut chat, _rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());

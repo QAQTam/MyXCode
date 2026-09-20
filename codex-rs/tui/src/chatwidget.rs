@@ -441,6 +441,7 @@ use self::status_state::StatusIndicatorState;
 use self::status_state::StatusState;
 use self::status_state::TerminalTitleStatusKind;
 mod status_controls;
+mod status_line_metrics;
 mod status_surfaces;
 mod streaming;
 use self::status_surfaces::CachedProjectRootName;
@@ -611,6 +612,7 @@ pub(crate) struct ChatWidget {
     pub(crate) windows_sandbox_elevated_setup_complete: bool,
     token_info: Option<TokenUsageInfo>,
     token_usage_pending: bool,
+    status_line_metrics: status_line_metrics::StatusLineMetrics,
     // Status and polling use account usage reads; response streams may identify meters differently.
     rate_limit_snapshots_by_limit_id: BTreeMap<String, RateLimitSnapshotDisplay>,
     refreshing_status_outputs: Vec<(u64, StatusHistoryHandle)>,
@@ -1151,7 +1153,10 @@ impl ChatWidget {
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
         match info {
-            Some(info) => self.apply_token_info(info),
+            Some(info) => {
+                self.status_line_metrics.observe_usage(&info);
+                self.apply_token_info(info);
+            }
             None => {
                 self.token_usage_pending = true;
                 self.bottom_pane
@@ -1159,8 +1164,10 @@ impl ChatWidget {
                 self.bottom_pane
                     .set_context_window(/*percent*/ None, /*used_tokens*/ None);
                 self.token_info = None;
+                self.status_line_metrics = status_line_metrics::StatusLineMetrics::default();
             }
         }
+        self.refresh_status_line();
     }
 
     fn apply_token_info(&mut self, info: TokenUsageInfo) {

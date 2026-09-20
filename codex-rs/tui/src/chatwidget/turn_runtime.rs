@@ -78,6 +78,8 @@ impl ChatWidget {
         self.clear_context_compaction();
         self.input_queue.user_turn_pending_start = false;
         self.reset_safety_buffering_for_turn_start();
+        self.status_line_metrics
+            .start_turn(self.token_info.as_ref());
         self.turn_lifecycle.start(Instant::now());
         self.transcript.reset_turn_flags();
         self.adaptive_chunking.reset();
@@ -312,6 +314,7 @@ impl ChatWidget {
     /// This does not clear MCP startup tracking, because MCP startup can overlap with turn cleanup
     /// and should continue to drive the bottom-pane running indicator while it is in progress.
     pub(super) fn finalize_turn(&mut self) {
+        self.status_line_metrics.finish_turn(/*duration_ms*/ None);
         self.flush_answer_and_plan_streams();
         self.flush_interrupt_queue();
         self.finish_dynamic_activity();

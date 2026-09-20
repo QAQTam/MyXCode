@@ -110,11 +110,17 @@ impl ChatWidget {
                             &notification.item_id,
                         ))
                 {
+                    if !from_replay {
+                        self.status_line_metrics.observe_model_delta();
+                    }
                     self.on_agent_message_delta(notification.delta);
                 }
             }
             ServerNotification::PlanDelta(notification) => {
                 self.restore_realtime_transcripts_before_turn(&notification.turn_id);
+                if !from_replay {
+                    self.status_line_metrics.observe_model_delta();
+                }
                 self.on_plan_delta(notification.delta);
             }
             ServerNotification::ReasoningSummaryTextDelta(notification) => {
@@ -124,6 +130,9 @@ impl ChatWidget {
                 ) && self.status_state.reasoning_item_id.as_deref()
                     == Some(&notification.item_id)
                 {
+                    if !from_replay {
+                        self.status_line_metrics.observe_model_delta();
+                    }
                     self.on_agent_reasoning_delta(notification.delta);
                 }
             }
@@ -135,6 +144,9 @@ impl ChatWidget {
                     )
                     && self.status_state.reasoning_item_id.as_deref() == Some(&notification.item_id)
                 {
+                    if !from_replay {
+                        self.status_line_metrics.observe_model_delta();
+                    }
                     self.on_agent_reasoning_delta(notification.delta);
                 }
             }
@@ -409,6 +421,10 @@ impl ChatWidget {
         self.last_rendered_user_message_display = None;
         let was_replaying_turn_completion = self.thread_usage.replaying_turn_completion;
         self.thread_usage.replaying_turn_completion = replay_kind.is_some();
+        if replay_kind.is_none() {
+            self.status_line_metrics
+                .finish_turn(notification.turn.duration_ms);
+        }
         match notification.turn.status {
             TurnStatus::Completed => {
                 let last_agent_message =
