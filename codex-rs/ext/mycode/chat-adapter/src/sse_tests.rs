@@ -1,7 +1,14 @@
 use bytes::Bytes;
 use codex_api::ResponseEvent;
 use codex_client::StreamResponse;
+use codex_mycode_model_wire::ToolPlan;
+use codex_mycode_model_wire::WireCapabilities;
 use codex_protocol::models::ResponseItem;
+use codex_tools::ResponsesApiNamespace;
+use codex_tools::ResponsesApiNamespaceTool;
+use codex_tools::ResponsesApiTool;
+use codex_tools::ToolSpec;
+use codex_tools::parse_tool_input_schema;
 use futures::stream;
 use http::HeaderMap;
 use http::StatusCode;
@@ -87,6 +94,7 @@ async fn merges_tool_call_deltas_into_one_function_call() {
         sse_response(body),
         Duration::from_secs(5),
         /*telemetry*/ None,
+        /*tool_plan*/ None,
     );
     let mut events = Vec::new();
     while let Some(event) = stream.rx_event.recv().await {
@@ -119,4 +127,78 @@ async fn merges_tool_call_deltas_into_one_function_call() {
             ..
         } if usage.total_tokens == 15
     )));
+}
+
+#[tokio::test]
+async fn decodes_flattened_tool_names_before_emitting_function_call() {
+    let tool_plan = ToolPlan::new(
+        [ToolSpec::Namespace(ResponsesApiNamespace {
+            name: "files".to_string(),
+            description: String::new(),
+            tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
+                name: "read".to_string(),
+                description: String::new(),
+                strict: false,
+                defer_loading: None,
+                parameters: parse_tool_input_schema(&json!({
+                    "type": "object",
+                    "properties": {},
+                }))
+                .expect("valid schema"),
+                output_schema: None,
+            })],
+        })],
+        WireCapabilities::function_only(),
+    )
+    .expect("tool plan");
+    let body = vec![
+        format!(
+            "data: {}\n\n",
+            json!({
+                "id": "chat-1",
+                "choices": [{
+                    "delta": {
+                        "tool_calls": [{
+                            "index": 0,
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "files__read",
+                                "arguments": "{}",
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            })
+        ),
+        "data: [DONE]\n\n".to_string(),
+    ];
+
+    let mut stream = spawn_chat_stream(
+        sse_response(body),
+        Duration::from_secs(5),
+        /*telemetry*/ None,
+        Some(tool_plan),
+    );
+    let mut function_call = None;
+    while let Some(event) = stream.rx_event.recv().await {
+        let event = event.expect("Chat stream event");
+        if let ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+            name: ref call_name,
+            namespace: ref call_namespace,
+            ..
+        }) = event
+        {
+            function_call = Some((call_name.clone(), call_namespace.clone()));
+        }
+        if matches!(event, ResponseEvent::Completed { .. }) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        function_call,
+        Some(("read".to_string(), Some("files".to_string())))
+    );
 }

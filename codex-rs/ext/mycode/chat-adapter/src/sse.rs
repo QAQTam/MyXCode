@@ -3,6 +3,8 @@ use codex_api::ResponseEvent;
 use codex_api::ResponseStream;
 use codex_api::SseTelemetry;
 use codex_client::StreamResponse;
+use codex_mycode_model_wire::ToolPlan;
+use codex_protocol::ToolName;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ReasoningItemContent;
 use codex_protocol::models::ResponseItem;
@@ -24,6 +26,7 @@ pub fn spawn_chat_stream(
     stream_response: StreamResponse,
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
+    tool_plan: Option<ToolPlan>,
 ) -> ResponseStream {
     let upstream_request_id = stream_response
         .headers
@@ -32,7 +35,14 @@ pub fn spawn_chat_stream(
         .map(str::to_string);
     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
     tokio::spawn(async move {
-        process_chat_sse(stream_response.bytes, tx_event, idle_timeout, telemetry).await;
+        process_chat_sse(
+            stream_response.bytes,
+            tx_event,
+            idle_timeout,
+            telemetry,
+            tool_plan,
+        )
+        .await;
     });
     ResponseStream {
         rx_event,
@@ -52,6 +62,7 @@ async fn process_chat_sse<S>(
     tx_event: mpsc::Sender<Result<ResponseEvent, ApiError>>,
     idle_timeout: Duration,
     telemetry: Option<Arc<dyn SseTelemetry>>,
+    tool_plan: Option<ToolPlan>,
 ) where
     S: Stream<Item = Result<bytes::Bytes, codex_client::TransportError>> + Unpin,
 {
@@ -90,6 +101,7 @@ async fn process_chat_sse<S>(
                     &mut reasoning_item_added,
                     &mut tool_calls,
                     &mut tool_call_order,
+                    tool_plan.as_ref(),
                 )
                 .await;
                 let _ = tx_event
@@ -122,6 +134,7 @@ async fn process_chat_sse<S>(
                 &mut reasoning_item_added,
                 &mut tool_calls,
                 &mut tool_call_order,
+                tool_plan.as_ref(),
             )
             .await;
             let _ = tx_event
@@ -249,7 +262,13 @@ async fn process_chat_sse<S>(
 
         match choice.get("finish_reason").and_then(Value::as_str) {
             Some("tool_calls") => {
-                flush_tool_calls(&tx_event, &mut tool_calls, &mut tool_call_order).await;
+                flush_tool_calls(
+                    &tx_event,
+                    &mut tool_calls,
+                    &mut tool_call_order,
+                    tool_plan.as_ref(),
+                )
+                .await;
             }
             Some("stop") => {
                 end_turn = Some(true);
@@ -261,6 +280,7 @@ async fn process_chat_sse<S>(
                     &mut reasoning_item_added,
                     &mut tool_calls,
                     &mut tool_call_order,
+                    tool_plan.as_ref(),
                 )
                 .await;
             }
@@ -308,10 +328,11 @@ async fn flush_chat_state(
     reasoning_item_added: &mut bool,
     tool_calls: &mut BTreeMap<usize, ToolCallState>,
     tool_call_order: &mut Vec<usize>,
+    tool_plan: Option<&ToolPlan>,
 ) {
     flush_reasoning_item(tx_event, reasoning_text, reasoning_item_added).await;
     flush_assistant_item(tx_event, assistant_text, assistant_item_added).await;
-    flush_tool_calls(tx_event, tool_calls, tool_call_order).await;
+    flush_tool_calls(tx_event, tool_calls, tool_call_order, tool_plan).await;
 }
 
 async fn flush_reasoning_item(
@@ -362,21 +383,25 @@ async fn flush_tool_calls(
     tx_event: &mpsc::Sender<Result<ResponseEvent, ApiError>>,
     tool_calls: &mut BTreeMap<usize, ToolCallState>,
     tool_call_order: &mut Vec<usize>,
+    tool_plan: Option<&ToolPlan>,
 ) {
     for index in tool_call_order.drain(..) {
         let Some(state) = tool_calls.remove(&index) else {
             continue;
         };
-        let Some(name) = state.name else {
+        let Some(wire_name) = state.name else {
             debug!("skipping Chat Completions tool call at index {index} without a name");
             continue;
         };
+        let name = tool_plan
+            .and_then(|plan| plan.decode_flat_name(&wire_name))
+            .unwrap_or_else(|| ToolName::plain(wire_name));
         let _ = tx_event
             .send(Ok(ResponseEvent::OutputItemDone(
                 ResponseItem::FunctionCall {
                     id: None,
-                    name,
-                    namespace: None,
+                    name: name.name,
+                    namespace: name.namespace,
                     arguments: state.arguments,
                     encrypted_function_args: None,
                     call_id: state.id.unwrap_or_else(|| format!("tool-call-{index}")),

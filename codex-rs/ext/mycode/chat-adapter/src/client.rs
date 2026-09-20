@@ -12,6 +12,7 @@ use codex_api::subagent_header;
 use codex_client::EncodedJsonBody;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
+use codex_mycode_model_wire::ToolPlan;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -37,6 +38,7 @@ pub struct ChatOptions {
     pub session_source: Option<SessionSource>,
     pub extra_headers: HeaderMap,
     pub compression: Compression,
+    pub tool_plan: Option<ToolPlan>,
 }
 
 impl<T: HttpTransport> ChatCompletionsClient<T> {
@@ -78,13 +80,14 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
             session_source,
             extra_headers,
             compression,
+            tool_plan,
         } = options;
         let mut headers = extra_headers;
         headers.extend(build_session_headers(session_id, None));
         if let Some(subagent) = subagent_header(&session_source) {
             insert_header(&mut headers, "x-openai-subagent", &subagent);
         }
-        self.stream(body, headers, compression).await
+        self.stream(body, headers, compression, tool_plan).await
     }
 
     async fn stream(
@@ -92,6 +95,7 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
         body: Value,
         headers: HeaderMap,
         compression: Compression,
+        tool_plan: Option<ToolPlan>,
     ) -> Result<ResponseStream, ApiError> {
         let body = EncodedJsonBody::encode(&body)
             .map_err(|error| ApiError::Stream(format!("failed to encode chat request: {error}")))?;
@@ -121,6 +125,7 @@ impl<T: HttpTransport> ChatCompletionsClient<T> {
             stream_response,
             self.session.provider().stream_idle_timeout,
             self.sse_telemetry.clone(),
+            tool_plan,
         ))
     }
 }

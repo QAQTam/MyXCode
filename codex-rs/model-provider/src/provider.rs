@@ -20,6 +20,7 @@ use codex_login::GatewayAuthManager;
 use codex_login::WorkspaceRoutingRequest;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::ResponseAdapter;
 use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
@@ -55,6 +56,7 @@ pub enum RemoteCompactionSupport {
 /// that the active provider marks unsupported here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderCapabilities {
+    pub response_adapter: ResponseAdapter,
     pub namespace_tools: bool,
     pub image_generation: bool,
     pub web_search: bool,
@@ -65,6 +67,7 @@ pub struct ProviderCapabilities {
 impl Default for ProviderCapabilities {
     fn default() -> Self {
         Self {
+            response_adapter: ResponseAdapter::Responses,
             namespace_tools: true,
             image_generation: true,
             web_search: true,
@@ -441,6 +444,7 @@ impl ModelProvider for ConfiguredModelProvider {
         };
 
         ProviderCapabilities {
+            response_adapter: self.info.response_adapter().unwrap_or_default(),
             remote_compaction,
             ..ProviderCapabilities::default()
         }
@@ -787,6 +791,25 @@ mod tests {
                 remote_compaction: RemoteCompactionSupport::V2,
                 ..ProviderCapabilities::default()
             }
+        );
+    }
+
+    #[test]
+    fn configured_provider_exposes_selected_response_adapter() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                http_headers: Some(std::collections::HashMap::from([(
+                    codex_model_provider_info::RESPONSE_ADAPTER_HEADER.to_string(),
+                    "chat_completions".into(),
+                )])),
+                ..ModelProviderInfo::default()
+            },
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().response_adapter,
+            ResponseAdapter::ChatCompletions
         );
     }
 

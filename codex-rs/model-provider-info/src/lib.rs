@@ -27,6 +27,7 @@ use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Component;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::PoisonError;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -36,6 +37,47 @@ pub use gateway_oauth::GatewayOAuthConfig;
 pub use gateway_oauth::GatewayOAuthDelivery;
 
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
+
+/// Provider-level extension used by the MyCode fork to select the response
+/// transport without overloading the upstream `wire_api` field.
+///
+/// This is intentionally represented as a reserved HTTP header so existing
+/// upstream provider configuration structs do not need another field. The
+/// header is consumed locally and is never sent to the provider.
+pub const RESPONSE_ADAPTER_HEADER: &str = "x-codex-response-adapter";
+
+/// Response transport selected for a provider.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ResponseAdapter {
+    /// The canonical Responses API transport.
+    #[default]
+    Responses,
+    /// Translate canonical requests to Chat Completions.
+    ChatCompletions,
+}
+
+impl fmt::Display for ResponseAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Responses => f.write_str("responses"),
+            Self::ChatCompletions => f.write_str("chat_completions"),
+        }
+    }
+}
+
+impl FromStr for ResponseAdapter {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "responses" => Ok(Self::Responses),
+            "chat_completions" | "chat-completions" => Ok(Self::ChatCompletions),
+            _ => Err(format!(
+                "unsupported response adapter `{value}`; expected `responses` or `chat_completions`"
+            )),
+        }
+    }
+}
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -262,6 +304,20 @@ fn default_aws_auth_refresh_timeout_ms() -> NonZeroU64 {
 }
 
 impl ModelProviderInfo {
+    /// Returns the response adapter selected by this provider.
+    pub fn response_adapter(&self) -> Result<ResponseAdapter, String> {
+        let Some(headers) = self.http_headers.as_ref() else {
+            return Ok(ResponseAdapter::default());
+        };
+        let Some(value) = headers.iter().find_map(|(name, value)| {
+            name.eq_ignore_ascii_case(RESPONSE_ADAPTER_HEADER)
+                .then_some(value.as_str())
+        }) else {
+            return Ok(ResponseAdapter::default());
+        };
+        ResponseAdapter::from_str(value)
+    }
+
     /// Checks that a configured Bedrock entry only customizes supported fields.
     /// Call this on the override before merging it with the built-in provider.
     pub fn validate_bedrock_override(&self) -> Result<(), String> {
@@ -283,6 +339,7 @@ other non-default provider fields are not supported"
     }
 
     pub fn validate(&self) -> std::result::Result<(), String> {
+        self.response_adapter()?;
         if let Some(gateway) = &self.gateway_oauth {
             gateway.validate(self)?;
         }
@@ -386,6 +443,9 @@ other non-default provider fields are not supported"
         let mut headers = HeaderMap::with_capacity(capacity);
         if let Some(extra) = &self.http_headers {
             for (k, v) in extra {
+                if k.eq_ignore_ascii_case(RESPONSE_ADAPTER_HEADER) {
+                    continue;
+                }
                 if let (Ok(name), Ok(value)) =
                     (HeaderName::try_from(k), HeaderValue::try_from(v.as_str()))
                 {

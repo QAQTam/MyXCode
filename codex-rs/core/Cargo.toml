@@ -42,6 +42,8 @@ codex-file-system = { workspace = true }
 codex-login = { workspace = true }
 codex-memories-read = { workspace = true }
 codex-mcp = { workspace = true }
+codex-mycode-chat-adapter = { workspace = true }
+codex-mycode-model-wire = { workspace = true }
 codex-model-provider-info = { workspace = true }
 codex-models-manager = { workspace = true }
 codex-shell-command = { workspace = true }

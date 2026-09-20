@@ -213,6 +213,7 @@ impl ModelProvider for AmazonBedrockModelProvider {
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
+            response_adapter: codex_model_provider_info::ResponseAdapter::Responses,
             namespace_tools: true,
             image_generation: false,
             web_search: self.endpoint == BedrockEndpoint::Mantle,
@@ -619,6 +620,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                response_adapter: codex_model_provider_info::ResponseAdapter::Responses,
                 namespace_tools: true,
                 image_generation: false,
                 web_search: true,
@@ -638,6 +640,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                response_adapter: codex_model_provider_info::ResponseAdapter::Responses,
                 namespace_tools: true,
                 image_generation: false,
                 web_search: false,

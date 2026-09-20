@@ -73,6 +73,13 @@ use codex_login::UnauthorizedRecovery;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_login::default_client::add_originator_header;
 use codex_login::default_client::create_client_for_route;
+use codex_mycode_chat_adapter::ChatCompletionsClient;
+use codex_mycode_chat_adapter::ChatOptions as ApiChatOptions;
+use codex_mycode_model_wire::CanonicalRequest;
+use codex_mycode_model_wire::CanonicalToolChoice;
+use codex_mycode_model_wire::ToolPlan;
+use codex_mycode_model_wire::WireCapabilities;
+use codex_mycode_model_wire::build_chat_request;
 use codex_otel::SessionTelemetry;
 use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
 use codex_otel::current_span_w3c_trace_context;
@@ -137,6 +144,7 @@ use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
 use codex_model_provider::AgentIdentitySessionFallback;
 use codex_model_provider::ProviderAuthScope;
 use codex_model_provider::ProviderUnauthorizedRecovery;
+use codex_model_provider::ResponseAdapter;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
@@ -144,7 +152,6 @@ use codex_model_provider::create_model_provider;
 #[cfg(test)]
 use codex_model_provider_info::DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS;
 use codex_model_provider_info::ModelProviderInfo;
-use codex_model_provider_info::WireApi;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
 use codex_response_debug_context::extract_response_debug_context;
@@ -1018,7 +1025,8 @@ impl ModelClient {
     ///
     /// WebSocket use is controlled by provider capability and session-scoped fallback state.
     pub fn responses_websocket_enabled(&self) -> bool {
-        if !self.state.provider.info().supports_websockets
+        if self.state.provider.capabilities().response_adapter != ResponseAdapter::Responses
+            || !self.state.provider.info().supports_websockets
             || self.state.disable_websockets.load(Ordering::Relaxed)
         {
             return false;
@@ -1770,6 +1778,164 @@ impl ModelClientSession {
         }
     }
 
+    /// Streams a turn through the Chat Completions compatibility adapter.
+    ///
+    /// Codex history remains canonical `ResponseItem` data. This method
+    /// applies the function-only tool plan and translates the request at the
+    /// provider boundary; responses are normalized back into `ResponseEvent`s
+    /// by the adapter before they enter the normal stream mapping path.
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "model_client.stream_chat_completions",
+        level = "info",
+        skip_all,
+        fields(
+            model = %model_info.slug,
+            transport = "chat_http",
+            http.method = "POST",
+            api.path = "chat/completions"
+        )
+    )]
+    async fn stream_chat_completions(
+        &self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+        session_telemetry: &SessionTelemetry,
+        responses_metadata: &CodexResponsesMetadata,
+        inference_trace: &InferenceTraceContext,
+    ) -> Result<ResponseStream> {
+        let tool_plan = ToolPlan::new(
+            prompt.tools.iter().cloned(),
+            WireCapabilities::function_only(),
+        )
+        .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+        let mut input = prompt.get_formatted_input_for_request(model_info);
+        if !self.client.reasoning_effort_override_enabled(model_info) {
+            input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
+        }
+        let canonical_request = CanonicalRequest {
+            model: model_info.slug.clone(),
+            instructions: prompt.base_instructions.text.clone(),
+            items: tool_plan.adapt_items(input),
+            tools: tool_plan.tools().to_vec(),
+            tool_choice: CanonicalToolChoice::Auto,
+            parallel_tool_calls: prompt.parallel_tool_calls,
+            stream: true,
+            provider_metadata: responses_metadata.client_metadata().into_iter().collect(),
+        };
+        let body = build_chat_request(&canonical_request)
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+
+        let auth_manager = self.client.state.provider.auth_manager();
+        let mut auth_recovery = auth_manager
+            .as_ref()
+            .map(AuthManager::unauthorized_recovery);
+        let mut provider_auth_recovery_attempted = false;
+        let mut pending_retry = PendingUnauthorizedRetry::default();
+
+        loop {
+            let client_setup = self
+                .client
+                .current_client_setup(ClientRouting::Workspace)
+                .await?;
+            let transport = self.client.build_api_transport(
+                &client_setup.api_provider,
+                "chat/completions",
+                client_setup.redirect_policy,
+            )?;
+            let request_auth_context = AuthRequestTelemetryContext::new(
+                client_setup.auth.as_ref().map(CodexAuth::auth_mode),
+                client_setup.api_auth.as_ref(),
+                client_setup.agent_identity_telemetry.clone(),
+                pending_retry,
+            );
+            let (request_telemetry, sse_telemetry) = Self::build_streaming_telemetry(
+                session_telemetry,
+                request_auth_context,
+                RequestRouteTelemetry::for_endpoint("chat/completions"),
+                self.client.state.auth_env_telemetry.clone(),
+            );
+            let mut options = ApiChatOptions {
+                session_id: Some(self.client.responses_session_id(responses_metadata)),
+                session_source: Some(self.client.state.session_source.clone()),
+                extra_headers: build_responses_headers(
+                    self.client.state.beta_features_header.as_deref(),
+                    Some(&self.turn_state),
+                ),
+                compression: Compression::None,
+                tool_plan: Some(tool_plan.clone()),
+            };
+            options.extra_headers.extend(
+                self.client
+                    .build_responses_compatibility_headers(responses_metadata),
+            );
+            add_originator_header(
+                &mut options.extra_headers,
+                self.client.state.originator.as_str(),
+            );
+            let inference_trace_attempt = inference_trace.start_attempt();
+            inference_trace_attempt.add_request_headers(&mut options.extra_headers);
+            inference_trace_attempt.record_started(&body);
+
+            let client = ChatCompletionsClient::new(
+                transport,
+                client_setup.api_provider,
+                client_setup.api_auth,
+            )
+            .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            match client.stream_request(body.clone(), options).await {
+                Ok(stream) => {
+                    let (stream, _) = map_response_stream(
+                        stream,
+                        session_telemetry.clone(),
+                        inference_trace_attempt,
+                        Arc::clone(&self.client.state.provider),
+                    );
+                    return Ok(stream);
+                }
+                Err(ApiError::Transport(unauthorized_transport))
+                    if self
+                        .client
+                        .state
+                        .provider
+                        .is_recoverable_auth_error(&unauthorized_transport) =>
+                {
+                    let response_debug_context =
+                        extract_response_debug_context(&unauthorized_transport);
+                    inference_trace_attempt.record_failed(
+                        &unauthorized_transport,
+                        response_debug_context.request_id.as_deref(),
+                        /*output_items*/ &[],
+                    );
+                    pending_retry = PendingUnauthorizedRetry::from_recovery(
+                        handle_unauthorized(
+                            unauthorized_transport,
+                            &mut auth_recovery,
+                            &mut provider_auth_recovery_attempted,
+                            session_telemetry,
+                            &self.client.state.provider,
+                            self.client.event_sender.as_ref(),
+                            responses_metadata.turn_id.as_deref(),
+                        )
+                        .await?,
+                    );
+                    continue;
+                }
+                Err(err) => {
+                    let response_debug_context =
+                        extract_response_debug_context_from_api_error(&err);
+                    let err = self.client.state.provider.map_api_error(err);
+                    inference_trace_attempt.record_failed(
+                        &err,
+                        response_debug_context.request_id.as_deref(),
+                        /*output_items*/ &[],
+                    );
+                    return Err(err);
+                }
+            }
+        }
+    }
+
     /// Streams a turn via the Responses API over WebSocket transport.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
@@ -2143,9 +2309,8 @@ impl ModelClientSession {
         responses_metadata: &CodexResponsesMetadata,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
-        let wire_api = self.client.state.provider.info().wire_api;
-        match wire_api {
-            WireApi::Responses => {
+        match self.client.state.provider.capabilities().response_adapter {
+            ResponseAdapter::Responses => {
                 if self.client.responses_websocket_enabled() {
                     let request_trace = current_span_w3c_trace_context();
                     match self
@@ -2177,6 +2342,16 @@ impl ModelClientSession {
                     effort,
                     summary,
                     service_tier,
+                    responses_metadata,
+                    inference_trace,
+                )
+                .await
+            }
+            ResponseAdapter::ChatCompletions => {
+                self.stream_chat_completions(
+                    prompt,
+                    model_info,
+                    session_telemetry,
                     responses_metadata,
                     inference_trace,
                 )

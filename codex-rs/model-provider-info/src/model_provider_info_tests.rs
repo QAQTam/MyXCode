@@ -54,6 +54,58 @@ fn test_api_provider_applies_current_managed_residency() {
 }
 
 #[test]
+fn response_adapter_reads_reserved_provider_header() {
+    let info = ModelProviderInfo {
+        http_headers: Some(maplit::hashmap! {
+            RESPONSE_ADAPTER_HEADER.to_string() => "chat_completions".into(),
+        }),
+        ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+    };
+
+    assert_eq!(
+        info.response_adapter(),
+        Ok(ResponseAdapter::ChatCompletions)
+    );
+}
+
+#[test]
+fn reserved_response_adapter_header_is_not_sent() {
+    let info = ModelProviderInfo {
+        http_headers: Some(maplit::hashmap! {
+            RESPONSE_ADAPTER_HEADER.to_string() => "chat_completions".into(),
+            "x-provider-header".to_string() => "preserved".into(),
+        }),
+        ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+    };
+
+    assert_eq!(
+        info.to_api_provider(/*auth_mode*/ None)
+            .expect("provider should resolve")
+            .headers,
+        HeaderMap::from_iter([(
+            HeaderName::from_static("x-provider-header"),
+            HeaderValue::from_static("preserved")
+        )])
+    );
+}
+
+#[test]
+fn invalid_response_adapter_is_rejected_during_validation() {
+    let info = ModelProviderInfo {
+        http_headers: Some(maplit::hashmap! {
+            RESPONSE_ADAPTER_HEADER.to_string() => "not-real".into(),
+        }),
+        ..ModelProviderInfo::default()
+    };
+
+    assert!(
+        info.validate()
+            .expect_err("invalid adapter should fail")
+            .contains("unsupported response adapter")
+    );
+}
+
+#[test]
 fn test_deserialize_ollama_model_provider_toml() {
     let azure_provider_toml = r#"
 name = "Ollama"

@@ -34,6 +34,7 @@ use codex_model_provider::SharedModelProvider;
 use codex_model_provider::create_model_provider;
 use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::RESPONSE_ADAPTER_HEADER;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_models_manager::manager::SharedModelsManager;
@@ -730,6 +731,98 @@ async fn responses_http_omits_raw_tool_metadata_for_openai_named_custom_endpoint
         )])?,
     );
     assert_eq!(prompt.input, vec![output]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn chat_completions_adapter_streams_canonical_events() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(/*status*/ 200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(concat!(
+                    "data: {\"id\":\"chat-1\",\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n",
+                    "data: {\"id\":\"chat-1\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                    "data: [DONE]\n\n",
+                )),
+        )
+        .expect(/*requests*/ 1)
+        .mount(&server)
+        .await;
+
+    let mut provider =
+        create_oss_provider_with_base_url(&format!("{}/v1", server.uri()), WireApi::Responses);
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        RESPONSE_ADAPTER_HEADER.to_string(),
+        "chat_completions".into(),
+    )]));
+    let mut client = test_model_client(SessionSource::Cli);
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .provider = create_model_provider(provider, /*auth_manager*/ None);
+    let prompt = Prompt {
+        input: vec![ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "hi".to_string(),
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        }],
+        base_instructions: BaseInstructions {
+            text: "system prompt".to_string(),
+            provenance: None,
+        },
+        ..Default::default()
+    };
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let mut session = client.new_session();
+    let mut stream = session
+        .stream(
+            &prompt,
+            &test_model_info(),
+            &test_session_telemetry(),
+            /*effort*/ None,
+            codex_protocol::config_types::ReasoningSummary::None,
+            /*service_tier*/ None,
+            &responses_metadata,
+            &InferenceTraceContext::disabled(),
+        )
+        .await?;
+    let mut text = String::new();
+    let mut completed = false;
+    while let Some(event) = stream.next().await {
+        match event? {
+            ResponseEvent::OutputTextDelta(delta) => text.push_str(&delta),
+            ResponseEvent::Completed { response_id, .. } => {
+                assert_eq!(response_id, "chat-1");
+                completed = true;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(text, "hello");
+    assert!(completed);
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&requests[0].body)?;
+    assert_eq!(
+        body["messages"],
+        json!([
+            {"role": "system", "content": "system prompt"},
+            {"role": "user", "content": "hi"},
+        ])
+    );
     Ok(())
 }
 
