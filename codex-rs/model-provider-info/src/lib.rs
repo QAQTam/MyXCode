@@ -52,6 +52,8 @@ pub enum ResponseAdapter {
     /// The canonical Responses API transport.
     #[default]
     Responses,
+    /// The Responses API with a conservative function-only tool surface.
+    ResponsesFunctionOnly,
     /// Translate canonical requests to Chat Completions.
     ChatCompletions,
 }
@@ -60,6 +62,7 @@ impl fmt::Display for ResponseAdapter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Responses => f.write_str("responses"),
+            Self::ResponsesFunctionOnly => f.write_str("responses_function_only"),
             Self::ChatCompletions => f.write_str("chat_completions"),
         }
     }
@@ -71,9 +74,13 @@ impl FromStr for ResponseAdapter {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
             "responses" => Ok(Self::Responses),
+            "responses_function_only" | "responses-function-only" => {
+                Ok(Self::ResponsesFunctionOnly)
+            }
             "chat_completions" | "chat-completions" => Ok(Self::ChatCompletions),
             _ => Err(format!(
-                "unsupported response adapter `{value}`; expected `responses` or `chat_completions`"
+                "unsupported response adapter `{value}`; expected `responses`, \
+                 `responses_function_only`, or `chat_completions`"
             )),
         }
     }

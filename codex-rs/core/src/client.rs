@@ -78,6 +78,7 @@ use codex_mycode_chat_adapter::ChatOptions as ApiChatOptions;
 use codex_mycode_model_wire::CanonicalRequest;
 use codex_mycode_model_wire::CanonicalToolChoice;
 use codex_mycode_model_wire::ResponseTransportKind;
+use codex_mycode_model_wire::WireAdapter;
 use codex_otel::SessionTelemetry;
 use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
 use codex_otel::current_span_w3c_trace_context;
@@ -853,6 +854,7 @@ impl ModelClient {
         model_info: &ModelInfo,
         effort: Option<ReasoningEffortConfig>,
         summary: ReasoningSummaryConfig,
+        use_responses_lite: bool,
     ) -> Reasoning {
         Reasoning {
             effort: effort
@@ -863,10 +865,19 @@ impl ModelClient {
                 .then_some(summary),
             // When Responses Lite is disabled, omit context so Responses uses the default,
             // which is currently `current_turn`.
-            context: model_info
-                .use_responses_lite
-                .then_some(ReasoningContext::AllTurns),
+            context: use_responses_lite.then_some(ReasoningContext::AllTurns),
         }
+    }
+
+    fn responses_lite_enabled(&self, model_info: &ModelInfo) -> bool {
+        model_info.use_responses_lite
+            && self
+                .state
+                .provider
+                .capabilities()
+                .wire_adapter
+                .capabilities()
+                .responses_lite
     }
 
     pub(crate) fn build_responses_request(
@@ -878,6 +889,8 @@ impl ModelClient {
         service_tier: Option<String>,
         responses_metadata: &CodexResponsesMetadata,
     ) -> Result<ResponsesApiRequest> {
+        let wire_adapter = self.state.provider.capabilities().wire_adapter;
+        let use_responses_lite = self.responses_lite_enabled(model_info);
         let mut input = prompt.get_formatted_input_for_request(model_info);
         if !self.reasoning_effort_override_enabled(model_info) {
             // Unsupported models and disabled overrides must also accept saved history.
@@ -885,7 +898,7 @@ impl ModelClient {
             input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
         }
         let is_openai = self.state.provider.info().is_openai();
-        let (instructions, tools) = if model_info.use_responses_lite {
+        let (instructions, tools) = if use_responses_lite {
             // These prompt-only items are rebuilt on every request. Hash their visible payloads
             // within the thread so retries and resumed sessions preserve their identity.
             let prefix_namespace = Uuid::new_v5(
@@ -918,9 +931,18 @@ impl ModelClient {
             input.splice(0..0, prefix);
             (String::new(), None)
         } else {
+            let tools = if wire_adapter == WireAdapter::ResponsesFunctionOnly {
+                let tool_plan = wire_adapter
+                    .tool_plan(prompt.tools.iter().cloned())
+                    .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+                input = wire_adapter.adapt_history(&tool_plan, input);
+                tool_plan.tools().to_vec()
+            } else {
+                prompt.tools.to_vec()
+            };
             (
                 prompt.base_instructions.text.clone(),
-                Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
+                Some(create_tools_raw_json_for_responses_api(&tools)?.into()),
             )
         };
         if !is_openai {
@@ -935,7 +957,7 @@ impl ModelClient {
                 }
             }
         }
-        let reasoning = self.build_reasoning(model_info, effort, summary);
+        let reasoning = self.build_reasoning(model_info, effort, summary, use_responses_lite);
         let stream_options = (self.state.concurrent_reasoning_summaries_enabled
             && is_openai
             && reasoning.summary.is_some())
@@ -972,7 +994,9 @@ impl ModelClient {
             input,
             tools,
             tool_choice: "auto".to_string(),
-            parallel_tool_calls: prompt.parallel_tool_calls && !model_info.use_responses_lite,
+            parallel_tool_calls: prompt.parallel_tool_calls
+                && wire_adapter.capabilities().parallel_tool_calls
+                && !use_responses_lite,
             reasoning: Some(reasoning),
             store: false,
             stream: true,
@@ -1665,7 +1689,7 @@ impl ModelClientSession {
                 .build_responses_options(
                     responses_metadata,
                     compression,
-                    model_info.use_responses_lite,
+                    self.client.responses_lite_enabled(model_info),
                 )
                 .await;
 
@@ -2073,9 +2097,10 @@ impl ModelClientSession {
             {
                 crate::guardian::observe_guardian_request(session_telemetry, &request);
             }
-            let mut client_metadata = self
-                .client
-                .build_ws_client_metadata(responses_metadata, model_info.use_responses_lite);
+            let mut client_metadata = self.client.build_ws_client_metadata(
+                responses_metadata,
+                self.client.responses_lite_enabled(model_info),
+            );
             if let Some(turn_state) = self.turn_state.get() {
                 client_metadata.insert(X_CODEX_TURN_STATE_HEADER.to_string(), turn_state.clone());
             }

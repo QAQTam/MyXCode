@@ -66,6 +66,11 @@ use codex_rollout_trace::RawTraceEventPayload;
 use codex_rollout_trace::RolloutTrace;
 use codex_rollout_trace::TraceWriter;
 use codex_rollout_trace::replay_bundle;
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiNamespace;
+use codex_tools::ResponsesApiNamespaceTool;
+use codex_tools::ResponsesApiTool;
+use codex_tools::ToolSpec;
 use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -926,6 +931,121 @@ async fn chat_completions_adapter_encodes_canonical_tool_history() -> anyhow::Re
             }
         ])
     );
+    Ok(())
+}
+
+#[test]
+fn responses_function_only_request_flattens_tools_and_history() -> anyhow::Result<()> {
+    let mut provider =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        RESPONSE_ADAPTER_HEADER.to_string(),
+        "responses_function_only".into(),
+    )]));
+    let mut client = test_model_client(SessionSource::Cli);
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .provider = create_model_provider(provider, /*auth_manager*/ None);
+    let namespace_tool = ToolSpec::Namespace(ResponsesApiNamespace {
+        name: "collaboration".to_string(),
+        description: "Collaboration tools.".to_string(),
+        tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
+            name: "spawn_agent".to_string(),
+            description: "Spawn a worker.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        })],
+    });
+    let prompt = Prompt {
+        input: vec![
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "spawn_agent".to_string(),
+                namespace: Some("collaboration".to_string()),
+                arguments: "{}".to_string(),
+                encrypted_function_args: None,
+                call_id: "call-1".to_string(),
+                internal_chat_message_metadata_passthrough: None,
+            },
+            ResponseItem::AdditionalTools {
+                id: None,
+                role: "developer".to_string(),
+                tools: Vec::new(),
+            },
+        ],
+        tools: vec![
+            namespace_tool,
+            ToolSpec::Freeform(codex_tools::FreeformTool {
+                name: "apply_patch".to_string(),
+                description: "Apply a patch.".to_string(),
+                defer_loading: None,
+                format: codex_tools::FreeformToolFormat {
+                    r#type: "grammar".to_string(),
+                    syntax: "lark".to_string(),
+                    definition: "start: /.*/".to_string(),
+                },
+            }),
+            ToolSpec::WebSearch {
+                external_web_access: None,
+                indexed_web_access: None,
+                filters: None,
+                user_location: None,
+                search_context_size: None,
+                search_content_types: None,
+            },
+        ]
+        .into(),
+        parallel_tool_calls: true,
+        base_instructions: BaseInstructions {
+            text: "base instructions".to_string(),
+            provenance: None,
+        },
+        ..Default::default()
+    };
+    let mut model = test_model_info();
+    model.use_responses_lite = true;
+    let request = client.build_responses_request(
+        &prompt,
+        &model,
+        /*effort*/ None,
+        codex_protocol::config_types::ReasoningSummary::None,
+        /*service_tier*/ None,
+        &test_responses_metadata_for_client(
+            &client,
+            /*turn_id*/ None,
+            format!("{}:0", client.state.thread_id),
+            /*parent_thread_id*/ None,
+            TestCodexResponsesRequestKind::Turn,
+        ),
+    )?;
+
+    assert_eq!(
+        request.input,
+        vec![ResponseItem::FunctionCall {
+            id: None,
+            name: "collaboration__spawn_agent".to_string(),
+            namespace: None,
+            arguments: "{}".to_string(),
+            encrypted_function_args: None,
+            call_id: "call-1".to_string(),
+            internal_chat_message_metadata_passthrough: None,
+        }]
+    );
+    assert_eq!(
+        serde_json::to_value(request.tools.expect("tools should be present"))?,
+        serde_json::to_value(vec![ToolSpec::Function(ResponsesApiTool {
+            name: "collaboration__spawn_agent".to_string(),
+            description: "Spawn a worker.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        })])?
+    );
+    assert!(request.parallel_tool_calls);
+    assert!(request.reasoning.expect("reasoning").context.is_none());
     Ok(())
 }
 

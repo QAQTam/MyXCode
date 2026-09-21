@@ -55,17 +55,22 @@ fn test_api_provider_applies_current_managed_residency() {
 
 #[test]
 fn response_adapter_reads_reserved_provider_header() {
-    let info = ModelProviderInfo {
-        http_headers: Some(maplit::hashmap! {
-            RESPONSE_ADAPTER_HEADER.to_string() => "chat_completions".into(),
-        }),
-        ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
-    };
+    for (value, expected) in [
+        ("chat_completions", ResponseAdapter::ChatCompletions),
+        (
+            "responses_function_only",
+            ResponseAdapter::ResponsesFunctionOnly,
+        ),
+    ] {
+        let info = ModelProviderInfo {
+            http_headers: Some(maplit::hashmap! {
+                RESPONSE_ADAPTER_HEADER.to_string() => value.into(),
+            }),
+            ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
+        };
 
-    assert_eq!(
-        info.response_adapter(),
-        Ok(ResponseAdapter::ChatCompletions)
-    );
+        assert_eq!(info.response_adapter(), Ok(expected));
+    }
 }
 
 #[test]

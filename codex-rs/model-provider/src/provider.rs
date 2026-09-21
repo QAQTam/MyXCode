@@ -446,6 +446,7 @@ impl ModelProvider for ConfiguredModelProvider {
         };
         let wire_adapter = match self.info.response_adapter().unwrap_or_default() {
             ResponseAdapter::Responses => WireAdapter::ResponsesNative,
+            ResponseAdapter::ResponsesFunctionOnly => WireAdapter::ResponsesFunctionOnly,
             ResponseAdapter::ChatCompletions => WireAdapter::ChatCompletionsFunctionOnly,
         };
         let wire_capabilities = wire_adapter.capabilities();
@@ -804,22 +805,40 @@ mod tests {
 
     #[test]
     fn configured_provider_exposes_selected_wire_adapter() {
-        let provider = create_model_provider(
-            ModelProviderInfo {
-                http_headers: Some(std::collections::HashMap::from([(
-                    codex_model_provider_info::RESPONSE_ADAPTER_HEADER.to_string(),
-                    "chat_completions".into(),
-                )])),
-                ..ModelProviderInfo::default()
-            },
-            /*auth_manager*/ None,
-        );
+        for (configured_adapter, expected_adapter, namespace_tools) in [
+            (
+                "responses_function_only",
+                WireAdapter::ResponsesFunctionOnly,
+                false,
+            ),
+            (
+                "chat_completions",
+                WireAdapter::ChatCompletionsFunctionOnly,
+                false,
+            ),
+        ] {
+            let provider = create_model_provider(
+                ModelProviderInfo {
+                    http_headers: Some(std::collections::HashMap::from([(
+                        codex_model_provider_info::RESPONSE_ADAPTER_HEADER.to_string(),
+                        configured_adapter.into(),
+                    )])),
+                    ..ModelProviderInfo::default()
+                },
+                /*auth_manager*/ None,
+            );
 
-        assert_eq!(
-            provider.capabilities().wire_adapter,
-            WireAdapter::ChatCompletionsFunctionOnly
-        );
-        assert!(!provider.capabilities().namespace_tools);
+            assert_eq!(
+                provider.capabilities().wire_adapter,
+                expected_adapter,
+                "{configured_adapter}"
+            );
+            assert_eq!(
+                provider.capabilities().namespace_tools,
+                namespace_tools,
+                "{configured_adapter}"
+            );
+        }
     }
 
     #[test]
