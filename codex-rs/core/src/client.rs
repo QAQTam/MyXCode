@@ -78,6 +78,7 @@ use codex_mycode_chat_adapter::ChatOptions as ApiChatOptions;
 use codex_mycode_model_wire::CanonicalRequest;
 use codex_mycode_model_wire::CanonicalToolChoice;
 use codex_mycode_model_wire::ResponseTransportKind;
+use codex_mycode_model_wire::ToolPlan;
 use codex_mycode_model_wire::WireAdapter;
 use codex_otel::SessionTelemetry;
 use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
@@ -306,6 +307,12 @@ pub struct ModelClientSession {
 struct LastResponse {
     response_id: String,
     items_added: Vec<ResponseItem>,
+}
+
+struct ResponsesRequestBuild {
+    request: ResponsesApiRequest,
+    wire_adapter: WireAdapter,
+    response_tool_plan: Option<ToolPlan>,
 }
 
 struct WebsocketContinuation {
@@ -889,6 +896,27 @@ impl ModelClient {
         service_tier: Option<String>,
         responses_metadata: &CodexResponsesMetadata,
     ) -> Result<ResponsesApiRequest> {
+        Ok(self
+            .build_responses_request_with_context(
+                prompt,
+                model_info,
+                effort,
+                summary,
+                service_tier,
+                responses_metadata,
+            )?
+            .request)
+    }
+
+    fn build_responses_request_with_context(
+        &self,
+        prompt: &Prompt,
+        model_info: &ModelInfo,
+        effort: Option<ReasoningEffortConfig>,
+        summary: ReasoningSummaryConfig,
+        service_tier: Option<String>,
+        responses_metadata: &CodexResponsesMetadata,
+    ) -> Result<ResponsesRequestBuild> {
         let wire_adapter = self.state.provider.capabilities().wire_adapter;
         let use_responses_lite = self.responses_lite_enabled(model_info);
         let mut input = prompt.get_formatted_input_for_request(model_info);
@@ -898,6 +926,7 @@ impl ModelClient {
             input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
         }
         let is_openai = self.state.provider.info().is_openai();
+        let mut response_tool_plan = None;
         let (instructions, tools) = if use_responses_lite {
             // These prompt-only items are rebuilt on every request. Hash their visible payloads
             // within the thread so retries and resumed sessions preserve their identity.
@@ -936,7 +965,9 @@ impl ModelClient {
                     .tool_plan(prompt.tools.iter().cloned())
                     .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
                 input = wire_adapter.adapt_history(&tool_plan, input);
-                tool_plan.tools().to_vec()
+                let tools = tool_plan.tools().to_vec();
+                response_tool_plan = Some(tool_plan);
+                tools
             } else {
                 prompt.tools.to_vec()
             };
@@ -1008,7 +1039,11 @@ impl ModelClient {
             client_metadata: Some(responses_metadata.client_metadata()),
             access_programs: None,
         };
-        Ok(request)
+        Ok(ResponsesRequestBuild {
+            request,
+            wire_adapter,
+            response_tool_plan,
+        })
     }
 
     fn filter_tool_result_metadata(input: &mut [ResponseItem], api_provider: &ApiProvider) {
@@ -1693,7 +1728,11 @@ impl ModelClientSession {
                 )
                 .await;
 
-            let mut request = self.client.build_responses_request(
+            let ResponsesRequestBuild {
+                mut request,
+                wire_adapter,
+                response_tool_plan,
+            } = self.client.build_responses_request_with_context(
                 prompt,
                 model_info,
                 effort.clone(),
@@ -1759,6 +1798,8 @@ impl ModelClientSession {
                         request_session_telemetry,
                         inference_trace_attempt,
                         Arc::clone(&self.client.state.provider),
+                        wire_adapter,
+                        response_tool_plan,
                     );
                     return Ok(stream);
                 }
@@ -1916,6 +1957,8 @@ impl ModelClientSession {
                         session_telemetry.clone(),
                         inference_trace_attempt,
                         Arc::clone(&self.client.state.provider),
+                        WireAdapter::ChatCompletionsFunctionOnly,
+                        /*tool_plan*/ None,
                     );
                     return Ok(stream);
                 }
@@ -2013,7 +2056,11 @@ impl ModelClientSession {
                 client_setup.agent_identity_telemetry.clone(),
                 pending_retry,
             );
-            let mut request = self.client.build_responses_request(
+            let ResponsesRequestBuild {
+                mut request,
+                wire_adapter,
+                response_tool_plan,
+            } = self.client.build_responses_request_with_context(
                 prompt,
                 model_info,
                 effort.clone(),
@@ -2222,6 +2269,8 @@ impl ModelClientSession {
                 request_session_telemetry,
                 inference_trace_attempt,
                 Arc::clone(&self.client.state.provider),
+                wire_adapter,
+                response_tool_plan,
             );
             self.websocket_session.last_response_rx = Some(last_request_rx);
             return Ok(WebsocketStreamOutcome::Stream(stream));
@@ -2465,6 +2514,8 @@ fn map_response_stream(
     session_telemetry: SessionTelemetry,
     inference_trace_attempt: InferenceTraceAttempt,
     provider: SharedModelProvider,
+    wire_adapter: WireAdapter,
+    tool_plan: Option<ToolPlan>,
 ) -> (ResponseStream, oneshot::Receiver<LastResponse>) {
     let codex_api::ResponseStream {
         rx_event,
@@ -2480,6 +2531,8 @@ fn map_response_stream(
         session_telemetry,
         inference_trace_attempt,
         provider,
+        wire_adapter,
+        tool_plan,
     )
 }
 
@@ -2489,6 +2542,8 @@ fn map_response_events<S>(
     session_telemetry: SessionTelemetry,
     inference_trace_attempt: InferenceTraceAttempt,
     provider: SharedModelProvider,
+    wire_adapter: WireAdapter,
+    tool_plan: Option<ToolPlan>,
 ) -> (ResponseStream, oneshot::Receiver<LastResponse>)
 where
     S: futures::Stream<Item = std::result::Result<ResponseEvent, ApiError>>
@@ -2501,6 +2556,7 @@ where
     let (tx_last_response, rx_last_response) = oneshot::channel::<LastResponse>();
     let consumer_dropped = CancellationToken::new();
     let consumer_dropped_for_stream = consumer_dropped.clone();
+    let tool_plan = tool_plan.map(Arc::new);
 
     tokio::spawn(async move {
         let mut logged_error = false;
@@ -2530,6 +2586,7 @@ where
             match event {
                 Ok(ResponseEvent::OutputItemDone(item)) => {
                     items_added.push(item.clone());
+                    let item = decode_response_item(wire_adapter, tool_plan.as_deref(), item);
                     if tx_event
                         .send(Ok(ResponseEvent::OutputItemDone(item)))
                         .await
@@ -2579,6 +2636,12 @@ where
                     }
                 }
                 Ok(event) => {
+                    let event = match event {
+                        ResponseEvent::OutputItemAdded(item) => ResponseEvent::OutputItemAdded(
+                            decode_response_item(wire_adapter, tool_plan.as_deref(), item),
+                        ),
+                        event => event,
+                    };
                     if matches!(&event, ResponseEvent::OutputItemAdded(_)) && ttft_ms.is_none() {
                         ttft_ms = Some(
                             i64::try_from(request_start.elapsed().as_millis()).unwrap_or(i64::MAX),
@@ -2631,6 +2694,39 @@ where
         },
         rx_last_response,
     )
+}
+
+fn decode_response_item(
+    wire_adapter: WireAdapter,
+    tool_plan: Option<&ToolPlan>,
+    item: ResponseItem,
+) -> ResponseItem {
+    let Some(tool_plan) = tool_plan else {
+        return item;
+    };
+    match item {
+        ResponseItem::FunctionCall {
+            id,
+            name,
+            namespace,
+            arguments,
+            encrypted_function_args,
+            call_id,
+            internal_chat_message_metadata_passthrough,
+        } if namespace.is_none() => {
+            let tool_name = wire_adapter.decode_tool_name(tool_plan, &name);
+            ResponseItem::FunctionCall {
+                id,
+                name: tool_name.name,
+                namespace: tool_name.namespace,
+                arguments,
+                encrypted_function_args,
+                call_id,
+                internal_chat_message_metadata_passthrough,
+            }
+        }
+        item => item,
+    }
 }
 
 /// Handles a 401 response by optionally refreshing ChatGPT tokens once.

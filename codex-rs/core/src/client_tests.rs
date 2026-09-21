@@ -38,6 +38,7 @@ use codex_model_provider_info::RESPONSE_ADAPTER_HEADER;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_models_manager::manager::SharedModelsManager;
+use codex_mycode_model_wire::WireAdapter;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
 use codex_protocol::auth::AuthMode;
@@ -1049,6 +1050,96 @@ fn responses_function_only_request_flattens_tools_and_history() -> anyhow::Resul
     Ok(())
 }
 
+#[tokio::test]
+async fn responses_function_only_decodes_function_calls_before_routing() -> anyhow::Result<()> {
+    let wire_adapter = WireAdapter::ResponsesFunctionOnly;
+    let tool_plan = wire_adapter.tool_plan([ToolSpec::Namespace(ResponsesApiNamespace {
+        name: "collaboration".to_string(),
+        description: String::new(),
+        tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
+            name: "spawn_agent".to_string(),
+            description: String::new(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::default(),
+            output_schema: None,
+        })],
+    })])?;
+    let wire_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "collaboration__spawn_agent".to_string(),
+        namespace: None,
+        arguments: "{}".to_string(),
+        encrypted_function_args: None,
+        call_id: "call-1".to_string(),
+        internal_chat_message_metadata_passthrough: None,
+    };
+    let canonical_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "spawn_agent".to_string(),
+        namespace: Some("collaboration".to_string()),
+        arguments: "{}".to_string(),
+        encrypted_function_args: None,
+        call_id: "call-1".to_string(),
+        internal_chat_message_metadata_passthrough: None,
+    };
+    let stream = futures::stream::iter([
+        Ok(ResponseEvent::OutputItemAdded(wire_item.clone())),
+        Ok(ResponseEvent::OutputItemDone(wire_item.clone())),
+        Ok(ResponseEvent::Completed {
+            response_id: "resp-1".to_string(),
+            token_usage: None,
+            usage_metadata: None,
+            end_turn: Some(true),
+        }),
+    ]);
+    let (mut mapped, last_response_rx) = super::map_response_events(
+        /*upstream_request_id*/ None,
+        stream,
+        test_session_telemetry(),
+        InferenceTraceAttempt::disabled(),
+        test_model_provider(),
+        wire_adapter,
+        Some(tool_plan),
+    );
+
+    assert!(matches!(
+        mapped.next().await.expect("added event")?,
+        ResponseEvent::OutputItemAdded(item) if item == canonical_item
+    ));
+    assert!(matches!(
+        mapped.next().await.expect("done event")?,
+        ResponseEvent::OutputItemDone(item) if item == canonical_item
+    ));
+    assert!(matches!(
+        mapped.next().await.expect("completed event")?,
+        ResponseEvent::Completed { .. }
+    ));
+    assert_eq!(last_response_rx.await?.items_added, vec![wire_item]);
+    Ok(())
+}
+
+#[test]
+fn responses_function_only_unknown_flat_name_falls_back_to_plain_name() -> anyhow::Result<()> {
+    let wire_adapter = WireAdapter::ResponsesFunctionOnly;
+    let tool_plan = wire_adapter.tool_plan([])?;
+    let item = ResponseItem::FunctionCall {
+        id: None,
+        name: "unknown_tool".to_string(),
+        namespace: None,
+        arguments: "{}".to_string(),
+        encrypted_function_args: None,
+        call_id: "call-1".to_string(),
+        internal_chat_message_metadata_passthrough: None,
+    };
+
+    assert_eq!(
+        super::decode_response_item(wire_adapter, Some(&tool_plan), item.clone()),
+        item
+    );
+    Ok(())
+}
+
 #[test]
 fn responses_lite_prefix_ids_track_thread_and_payload() -> anyhow::Result<()> {
     let thread_id = ThreadId::new();
@@ -1568,6 +1659,8 @@ async fn dropped_response_stream_traces_cancelled_partial_output() -> anyhow::Re
         test_session_telemetry(),
         attempt,
         test_model_provider(),
+        WireAdapter::ResponsesNative,
+        /*tool_plan*/ None,
     );
 
     let observed = stream
@@ -1619,6 +1712,8 @@ async fn response_stream_records_last_model_feedback_ids() {
         test_session_telemetry(),
         InferenceTraceAttempt::disabled(),
         test_model_provider(),
+        WireAdapter::ResponsesNative,
+        /*tool_plan*/ None,
     );
 
     while stream.next().await.is_some() {}
@@ -1840,6 +1935,8 @@ async fn dropped_backpressured_response_stream_traces_cancelled_partial_output()
         test_session_telemetry(),
         attempt,
         test_model_provider(),
+        WireAdapter::ResponsesNative,
+        /*tool_plan*/ None,
     );
 
     // Fill the mapper channel with non-terminal events, then yield one output
