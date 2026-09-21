@@ -6231,7 +6231,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         features: config.features.clone(),
         guardian_context_mode: GuardianContextMode::from_features(&config.features),
         isolation: codex_extension_api::SessionIsolation::Inherit,
-        allowed_tools: None,
+        tool_policy: Arc::default(),
         windows_sandbox_proxy_settings_mode:
             codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
         multi_agent_version: OnceLock::from(config.multi_agent_version_from_features()),
@@ -8489,7 +8489,7 @@ where
         features: config.features.clone(),
         guardian_context_mode: GuardianContextMode::from_features(&config.features),
         isolation: codex_extension_api::SessionIsolation::Inherit,
-        allowed_tools: None,
+        tool_policy: Arc::default(),
         windows_sandbox_proxy_settings_mode:
             codex_sandboxing::WindowsSandboxProxySettingsMode::Reconcile,
         multi_agent_version: OnceLock::from(config.multi_agent_version_from_features()),
