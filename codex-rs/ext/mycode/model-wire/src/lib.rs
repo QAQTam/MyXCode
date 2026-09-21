@@ -15,6 +15,7 @@ pub use canonical::CanonicalRequest;
 pub use canonical::CanonicalToolCall;
 pub use canonical::CanonicalToolChoice;
 pub use canonical::CanonicalToolResult;
+pub use capabilities::ResponseTransportKind;
 pub use capabilities::WireAdapter;
 pub use capabilities::WireCapabilities;
 pub use chat::ChatWireError;

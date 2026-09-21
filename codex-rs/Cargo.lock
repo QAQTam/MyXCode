@@ -4056,6 +4056,7 @@ dependencies = [
  "codex-login",
  "codex-model-provider-info",
  "codex-models-manager",
+ "codex-mycode-model-wire",
  "codex-otel",
  "codex-protocol",
  "codex-response-debug-context",

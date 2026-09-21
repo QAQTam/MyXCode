@@ -77,8 +77,7 @@ use codex_mycode_chat_adapter::ChatCompletionsClient;
 use codex_mycode_chat_adapter::ChatOptions as ApiChatOptions;
 use codex_mycode_model_wire::CanonicalRequest;
 use codex_mycode_model_wire::CanonicalToolChoice;
-use codex_mycode_model_wire::ToolPlan;
-use codex_mycode_model_wire::WireCapabilities;
+use codex_mycode_model_wire::ResponseTransportKind;
 use codex_otel::SessionTelemetry;
 use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
 use codex_otel::current_span_w3c_trace_context;
@@ -143,7 +142,6 @@ use codex_login::auth_env_telemetry::collect_auth_env_telemetry;
 use codex_model_provider::AgentIdentitySessionFallback;
 use codex_model_provider::ProviderAuthScope;
 use codex_model_provider::ProviderUnauthorizedRecovery;
-use codex_model_provider::ResponseAdapter;
 use codex_model_provider::ResponsesConnectionKey;
 use codex_model_provider::SharedModelProvider;
 use codex_model_provider::WorkspaceRoutingContext;
@@ -1024,7 +1022,13 @@ impl ModelClient {
     ///
     /// WebSocket use is controlled by provider capability and session-scoped fallback state.
     pub fn responses_websocket_enabled(&self) -> bool {
-        if self.state.provider.capabilities().response_adapter != ResponseAdapter::Responses
+        if self
+            .state
+            .provider
+            .capabilities()
+            .wire_adapter
+            .transport_kind()
+            != ResponseTransportKind::Responses
             || !self.state.provider.info().supports_websockets
             || self.state.disable_websockets.load(Ordering::Relaxed)
         {
@@ -1803,11 +1807,10 @@ impl ModelClientSession {
         responses_metadata: &CodexResponsesMetadata,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
-        let tool_plan = ToolPlan::new(
-            prompt.tools.iter().cloned(),
-            WireCapabilities::function_only(),
-        )
-        .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+        let wire_adapter = self.client.state.provider.capabilities().wire_adapter;
+        let tool_plan = wire_adapter
+            .tool_plan(prompt.tools.iter().cloned())
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
         let mut input = prompt.get_formatted_input_for_request(model_info);
         if !self.client.reasoning_effort_override_enabled(model_info) {
             input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
@@ -1815,7 +1818,7 @@ impl ModelClientSession {
         let canonical_request = CanonicalRequest {
             model: model_info.slug.clone(),
             instructions: prompt.base_instructions.text.clone(),
-            items: tool_plan.adapt_items(input),
+            items: wire_adapter.adapt_history(&tool_plan, input),
             tools: tool_plan.tools().to_vec(),
             tool_choice: CanonicalToolChoice::Auto,
             parallel_tool_calls: prompt.parallel_tool_calls,
@@ -2308,8 +2311,9 @@ impl ModelClientSession {
         responses_metadata: &CodexResponsesMetadata,
         inference_trace: &InferenceTraceContext,
     ) -> Result<ResponseStream> {
-        match self.client.state.provider.capabilities().response_adapter {
-            ResponseAdapter::Responses => {
+        let wire_adapter = self.client.state.provider.capabilities().wire_adapter;
+        match wire_adapter.transport_kind() {
+            ResponseTransportKind::Responses => {
                 if self.client.responses_websocket_enabled() {
                     let request_trace = current_span_w3c_trace_context();
                     match self
@@ -2346,7 +2350,7 @@ impl ModelClientSession {
                 )
                 .await
             }
-            ResponseAdapter::ChatCompletions => {
+            ResponseTransportKind::ChatCompletions => {
                 self.stream_chat_completions(
                     prompt,
                     model_info,

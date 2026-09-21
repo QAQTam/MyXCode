@@ -25,6 +25,7 @@ use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
+use codex_mycode_model_wire::WireAdapter;
 use codex_protocol::account::ProviderAccount;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
@@ -57,7 +58,7 @@ pub enum RemoteCompactionSupport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderCapabilities {
     /// Wire adapter used to encode and decode model requests for this provider.
-    pub response_adapter: ResponseAdapter,
+    pub wire_adapter: WireAdapter,
     pub namespace_tools: bool,
     pub image_generation: bool,
     pub web_search: bool,
@@ -68,7 +69,7 @@ pub struct ProviderCapabilities {
 impl Default for ProviderCapabilities {
     fn default() -> Self {
         Self {
-            response_adapter: ResponseAdapter::Responses,
+            wire_adapter: WireAdapter::ResponsesNative,
             namespace_tools: true,
             image_generation: true,
             web_search: true,
@@ -443,9 +444,15 @@ impl ModelProvider for ConfiguredModelProvider {
         } else {
             RemoteCompactionSupport::Unsupported
         };
+        let wire_adapter = match self.info.response_adapter().unwrap_or_default() {
+            ResponseAdapter::Responses => WireAdapter::ResponsesNative,
+            ResponseAdapter::ChatCompletions => WireAdapter::ChatCompletionsFunctionOnly,
+        };
+        let wire_capabilities = wire_adapter.capabilities();
 
         ProviderCapabilities {
-            response_adapter: self.info.response_adapter().unwrap_or_default(),
+            wire_adapter,
+            namespace_tools: wire_capabilities.namespace_tools,
             remote_compaction,
             ..ProviderCapabilities::default()
         }
@@ -796,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_provider_exposes_selected_response_adapter() {
+    fn configured_provider_exposes_selected_wire_adapter() {
         let provider = create_model_provider(
             ModelProviderInfo {
                 http_headers: Some(std::collections::HashMap::from([(
@@ -809,9 +816,10 @@ mod tests {
         );
 
         assert_eq!(
-            provider.capabilities().response_adapter,
-            ResponseAdapter::ChatCompletions
+            provider.capabilities().wire_adapter,
+            WireAdapter::ChatCompletionsFunctionOnly
         );
+        assert!(!provider.capabilities().namespace_tools);
     }
 
     #[test]
