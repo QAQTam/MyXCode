@@ -604,6 +604,7 @@ mod thread_processor_behavior_tests {
             wire_api: WireApi::Responses,
             query_params: None,
             http_headers: None,
+            extensions: None,
             env_http_headers: None,
             request_max_retries: None,
             stream_max_retries: None,
