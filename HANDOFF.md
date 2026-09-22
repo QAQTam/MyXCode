@@ -17,7 +17,8 @@
 >
 > 不得直接把 `main` 合入当前分支。当前本地 `main` 已按 owner 要求
 > fast-forward 到 `upstream/main = ac7634b9f`（2026-09-22），并已
-> cherry-pick 4 个上游补丁；当前分支仍未合并上游 `main`。
+> cherry-pick 79 个上游补丁（4 个基础补丁 + 75 个 TUI/multi-agent
+> 补丁）；当前分支仍未合并上游 `main`。
 
 ---
 
@@ -37,8 +38,8 @@ adapter”落地：算法不接触文件系统，core 统一通过 `ExecutorFile
 - 最终完整 `just test` 验证；
 - 后续按需要把 generic Responses 默认策略推广到更多 provider；
 - 文件工具仍需独立 `ApprovalAction::FileMutation` 和 approval cache key；
-- 上游 130 个提交已完成整体合并探测；当前只 cherry-pick 了与 fork
-  直接相关的 4 个补丁，后续按需继续同步。
+- 上游 130 个提交已完成整体合并探测；当前已同步 79 个补丁，剩余
+  提交按需继续 cherry-pick。
 
 ---
 
@@ -53,6 +54,11 @@ myXCode-features
 当前 HEAD 附近的迁移/同步提交：
 
 ```text
+0a431f1fb chore(app-server-protocol): refresh stable precomputed exports
+abde2862d Stream agent snapshots from local status subscriptions (#47267)
+fe200bf2f Subscribe authors to message-board channels created by posting (#47259)
+1d62014d7 Preserve explicit message-board unsubscribes when posting (#47257)
+cf13c25fa Return agent snapshots from `close_agent` (#47252)
 fffee2b4c Enforce current provider requirements for the model catalog (#46917)
 9019b6b98 Honor the system clock preference in TUI completion timestamps (#46845)
 9e2b43d90 Preserve required Windows runtime variables for filesystem helpers (#47108)
@@ -68,6 +74,13 @@ d7c230d430 test(mycode): add cross-wire conformance coverage
 67704621c0 feat(mycode): promote wire adapter to provider policy
 c5639d3de6 refactor(mycode): keep chat wire encoding in adapter
 ```
+
+本轮另外连续 cherry-pick 了 75 个上游提交，覆盖 TUI 产品化
+（fullscreen transcript、mouse selection、usage/analytics、math/Mermaid）
+以及 multi-agent/message board（`codex-agent-message-board-extension`、
+SQLite 持久化、协作工具、agent snapshots/resume/eviction）。组合应用
+只人工处理了预计算 schema 二进制，随后已重新生成 schema 并更新
+`MODULE.bazel.lock`。
 
 更早的相关提交：
 
@@ -587,9 +600,23 @@ just test -p codex-mycode-file-tools                         # 18 passed
 just test -p codex-apply-patch                               # 99 passed
 just test -p codex-core --lib spec_plan                      # 56 passed
 just test -p codex-core --lib file_tools                     # 3 passed
+just test -p codex-tui clock_format                          # 4 passed
+just test -p codex-app-server model_list_requirements        # 2 passed
+just test -p codex-exec-server fs_sandbox                    # 15 passed
+just test -p codex-agent-message-board-extension             # 7 passed
+just test -p codex-core --test all agent_message_board       # 6 passed
+just test -p codex-app-server thread_delete                  # 7 passed
+just test -p codex-app-server-protocol                       # 309 passed
+just test -p codex-tui                                       # 5434 passed, 4 existing cursor failures
 just fix -p codex-mycode-file-tools
 just fix -p codex-apply-patch
 just fix -p codex-core
+just fix -p codex-tui
+just fix -p codex-app-server
+just fix -p codex-extension-api
+just fix -p codex-agent-message-board-extension
+just write-app-server-schema
+just write-app-server-schema --experimental
 just bazel-lock-update
 ```
 
@@ -644,6 +671,8 @@ codex-rs/core/src/client_tests.rs
 - [x] 完成 e/w/r 纯逻辑 crate 和 core sandbox adapter；
 - [x] TUI 展示真实文件工具名；
 - [x] 完成上游 `ToolPolicy` cherry-pick；
+- [x] 完成 TUI 产品化 43 个上游提交同步；
+- [x] 完成 multi-agent/message board 38 个上游提交同步；
 - [ ] 文件工具独立 approval action/cache key 尚未实现；
 - [ ] Anthropic Messages 暂缓，尚未实现；
 - [ ] 最终 workspace-wide `just test` 尚未执行；
