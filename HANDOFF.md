@@ -1,7 +1,9 @@
 # HANDOFF — MyCode 迁移工作
 
-更新时间：2026-09-21  
-当前分支：`myXCode-features`  
+更新时间：2026-09-22
+
+当前分支：`myXCode-features`
+
 设计文档：`docs/mycode-wire-adapter-spec.md`
 
 > **迁移完成前，不允许同步上游 `main`。**
@@ -21,16 +23,15 @@
 
 ## 0. 一句话状态
 
-Chat Completions 的独立 wire adapter 已经接入 core，并具备 canonical history、
-ToolPlan、SSE 解析、工具名反解和 provider 选择能力。
+Chat、ResponsesNative、ResponsesFunctionOnly 三条 wire 路径已经稳定接入，
+并具备 canonical history、ToolPlan、SSE 解析、返回侧工具名反解、跨 wire
+conformance 和第一类 provider extension 配置能力。
 
-当前工作区干净，迁移没有完成：
+当前工作区干净，剩余工作只有：
 
-- 还没有 `ResponsesFunctionOnly`
-- 还没有 Responses 返回侧统一工具名反解
-- 还没有跨 wire conformance
-- 还没有 Anthropic Messages
-- 当前配置仍是过渡用的保留 header
+- Anthropic Messages（明确暂缓）；
+- 最终完整 `just test` 验证；
+- 后续按需要把 generic Responses 默认策略推广到更多 provider。
 
 ---
 
@@ -45,6 +46,11 @@ myXCode-features
 当前 HEAD 附近的迁移提交：
 
 ```text
+c160a5a2d7 feat(mycode): add provider wire adapter extensions
+d7c230d430 test(mycode): add cross-wire conformance coverage
+03e64024a9 feat(mycode): decode responses function-only tool calls
+119d4c8514 feat(mycode): adapt responses function-only requests
+67704621c0 feat(mycode): promote wire adapter to provider policy
 c5639d3de6 refactor(mycode): keep chat wire encoding in adapter
 d86b294dfe docs(mycode): describe response adapter capability
 ca907ddbf8 test(mycode): cover canonical chat tool history
@@ -250,11 +256,11 @@ codex-rs/ext/mycode/model-wire/src/tool_plan.rs
 
 ---
 
-## 5. 当前还没有完成的事情
+## 5. 已完成能力
 
 ### 5.1 ResponsesFunctionOnly
 
-这是下一阶段第一优先级。
+已完成。
 
 目标：
 
@@ -274,7 +280,7 @@ ToolPlan
 
 ### 5.2 Responses 返回侧工具名反解
 
-现在只有 Chat SSE 使用 `ToolPlan::decode_flat_name`。
+已完成。Chat SSE 与 ResponsesFunctionOnly 都会在进入 router 前解码。
 
 ResponsesFunctionOnly 必须也在事件进入 session/tool router 前反解：
 
@@ -294,7 +300,7 @@ map_response_events / map_response_stream
 
 ### 5.3 `WireAdapter` 策略化
 
-当前 `ResponseAdapter` 只选择 transport。下一步应把它演进成：
+已完成。`ResponseAdapter` 只负责配置解析，运行时策略是：
 
 ```rust
 pub enum WireAdapter {
@@ -316,7 +322,7 @@ pub enum WireAdapter {
 
 ### 5.4 跨 wire conformance
 
-必须补：
+已覆盖：
 
 - Chat -> ResponsesFunctionOnly；
 - ResponsesFunctionOnly -> Chat；
@@ -329,7 +335,7 @@ pub enum WireAdapter {
 
 ### 5.5 最终配置设计
 
-当前保留 header 只是过渡。
+已完成第一类配置层；legacy header 保留为兼容 alias。
 
 目标配置形状：
 
@@ -338,12 +344,12 @@ pub enum WireAdapter {
 wire_adapter = "responses_function_only"
 ```
 
-在 `WireAdapter` 稳定前，不要给上游 `ModelProviderInfo` 直接加字段。
-那会造成大量结构体字面量改动，并放大未来 cherry-pick 冲突。
+`ModelProviderInfo.extensions` 已在 `WireAdapter` 稳定后加入；结构体字面量
+只做了机械补全，legacy header 仍保留为兼容路径。
 
 ### 5.6 Anthropic Messages
 
-Anthropic 放在 `WireAdapter` 和 `ResponsesFunctionOnly` 之后。
+暂缓，作为后续独立阶段处理。
 
 要求：
 
@@ -353,9 +359,9 @@ Anthropic 放在 `WireAdapter` 和 `ResponsesFunctionOnly` 之后。
 
 ---
 
-## 6. 下一步建议顺序
+## 6. 阶段状态
 
-### Step 1：WireAdapter 策略化
+### Step 1：WireAdapter 策略化（已完成）
 
 目标文件：
 
@@ -370,7 +376,7 @@ codex-rs/core/src/client.rs
 - `WireAdapter` 承担 capabilities/tool plan/history/decoder/transport kind；
 - 保持 Chat 现有测试绿。
 
-### Step 2：ResponsesFunctionOnly 请求适配
+### Step 2：ResponsesFunctionOnly 请求适配（已完成）
 
 目标文件：
 
@@ -388,7 +394,7 @@ codex-rs/ext/mycode/model-wire/src/tool_plan.rs
 - 无 namespace/custom/builtin；
 - 历史副本适配。
 
-### Step 3：Responses 返回侧解码
+### Step 3：Responses 返回侧解码（已完成）
 
 目标文件：
 
@@ -402,7 +408,7 @@ codex-rs/core/src/client.rs
 - `FunctionCall` 进入 router 前解码；
 - 未知 flat name 有明确 fallback。
 
-### Step 4：Conformance
+### Step 4：Conformance（已完成）
 
 建议新增或恢复：
 
@@ -423,9 +429,20 @@ subagent_delivery_on_function_only_wires
 no_chat_tool_calls_leak_into_responses
 ```
 
-### Step 5：Anthropic
+### Step 5：Anthropic（暂缓）
 
-在前四步稳定后再开。
+前四步已稳定；Anthropic 作为后续独立阶段处理。
+
+### Step 6：最终配置层（已完成）
+
+已支持：
+
+```toml
+[model_providers.example.extensions]
+wire_adapter = "responses_function_only"
+```
+
+legacy header 仍作为兼容 alias。
 
 ---
 
@@ -475,13 +492,15 @@ no_chat_tool_calls_leak_into_responses
 最近通过：
 
 ```text
-cargo fmt --all -- --check
-cargo check -p codex-mycode-chat-adapter -p codex-core --tests -j 4
-cargo test -p codex-model-provider-info -j 4       # 35 passed
-cargo test -p codex-model-provider -j 4            # 99 passed
-cargo test -p codex-mycode-model-wire -j 4         # 12 passed
-cargo test -p codex-mycode-chat-adapter -j 4       # 2 passed
-cargo test -p codex-core --lib chat_completions_adapter_ -j 4  # 2 passed
+just fmt
+just test -p codex-mycode-model-wire                         # 15 passed
+just test -p codex-model-provider-info                       # 39 passed
+just test -p codex-model-provider                            # 102 passed
+just test -p codex-config                                    # 339 passed
+just test -p codex-core --lib responses_function_only_       # 3 passed
+just test -p codex-core --lib chat_completions_adapter_      # 2 passed
+just test -p codex-core --test all 'multiadapt_conformance::' # 10 passed
+just bazel-lock-update
 ```
 
 注意：
@@ -490,6 +509,8 @@ cargo test -p codex-core --lib chat_completions_adapter_ -j 4  # 2 passed
 - 链接超大 core test binary 时曾遇到 `lld` bus error，重跑后通过；
 - 不要因为链接器错误而改业务代码；
 - 迁移期间不要执行 workspace-wide `cargo test`，除非用户明确要求。
+- `codex-core --lib` 全量在当前机器上仍有多 agent 既有超时；已在 Stage 6 前的
+  HEAD 复现，和 wire adapter 改动无关。
 
 ---
 
@@ -516,13 +537,15 @@ codex-rs/core/src/client_tests.rs
 
 接手后先确认：
 
-- [ ] `git status` 干净；
-- [ ] 当前分支是 `myXCode-features`；
-- [ ] 没有执行任何上游同步；
-- [ ] 阅读 `docs/mycode-wire-adapter-spec.md`；
-- [ ] 先做 `WireAdapter` 策略化；
-- [ ] 再做 `ResponsesFunctionOnly`；
-- [ ] 再做 response-side tool name decoding；
-- [ ] 最后补 conformance；
-- [ ] Anthropic 和最终配置层放到后面；
-- [ ] 所有改动继续按小提交拆分，保持 cherry-pick 友好。
+- [x] `git status` 干净；
+- [x] 当前分支是 `myXCode-features`；
+- [x] 没有执行任何上游同步；
+- [x] 阅读 `docs/mycode-wire-adapter-spec.md`；
+- [x] 完成 `WireAdapter` 策略化；
+- [x] 完成 `ResponsesFunctionOnly`；
+- [x] 完成 response-side tool name decoding；
+- [x] 完成 cross-wire conformance；
+- [x] 完成第一类 provider extension 配置层；
+- [ ] Anthropic Messages 暂缓，尚未实现；
+- [ ] 最终 workspace-wide `just test` 尚未执行；
+- [x] 所有改动继续按小提交拆分，保持 cherry-pick 友好。

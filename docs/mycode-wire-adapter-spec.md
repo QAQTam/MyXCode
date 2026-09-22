@@ -1,8 +1,9 @@
 # MyCode Wire Adapter V2 Spec
 
-Status: **partially implemented; ResponsesFunctionOnly and Anthropic are not implemented**
+Status: **ResponsesFunctionOnly and Chat Completions implemented; Anthropic deferred**
 
 Written: 2026-09-21
+Updated: 2026-09-22
 
 Branch context: `myXCode-features`
 
