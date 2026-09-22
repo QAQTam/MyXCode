@@ -6,20 +6,18 @@
 
 设计文档：`docs/mycode-wire-adapter-spec.md`
 
-> **迁移完成前，默认不合并或切换上游 `main`。**
+> **迁移完成前，默认不把上游 `main` 直接合入当前分支。**
 >
-> 具体禁止：
+> 允许在 fork owner 明确要求时：
 >
-> - 不要 `git pull`
-> - 不要 `git checkout main`
-> - 不要 `git reset --hard main`
-> - 不要为了“先保持干净”而移动当前分支 HEAD
+> - `git fetch upstream main`
+> - fast-forward 本地 `main`
+> - 使用临时 worktree 做 cherry-pick/merge 探测
+> - 经评估后把必要补丁 cherry-pick 到 `myXCode-features`
 >
-> fork owner 明确要求检查上游时，可以 `git fetch upstream main` 读取
-> remote-tracking ref，或使用临时 worktree 做 cherry-pick 探测；不得把
-> `main` 的内容直接合入当前分支。当前已按此方式检查到
-> `upstream/main = 30daed37ad`，没有发现新的 `apply-patch` /
-> `file-system` 执行 API。
+> 不得直接把 `main` 合入当前分支。当前本地 `main` 已按 owner 要求
+> fast-forward 到 `upstream/main = ac7634b9f`（2026-09-22），并已
+> cherry-pick 4 个上游补丁；当前分支仍未合并上游 `main`。
 
 ---
 
@@ -38,7 +36,9 @@ adapter”落地：算法不接触文件系统，core 统一通过 `ExecutorFile
 - Anthropic Messages（明确暂缓）；
 - 最终完整 `just test` 验证；
 - 后续按需要把 generic Responses 默认策略推广到更多 provider；
-- 视需要在 TUI/file-change 事件中展示真实的 `edit_file` / `write_file` 工具名。
+- 文件工具仍需独立 `ApprovalAction::FileMutation` 和 approval cache key；
+- 上游 130 个提交已完成整体合并探测；当前只 cherry-pick 了与 fork
+  直接相关的 4 个补丁，后续按需继续同步。
 
 ---
 
@@ -50,21 +50,23 @@ adapter”落地：算法不接触文件系统，core 统一通过 `ExecutorFile
 myXCode-features
 ```
 
-当前 HEAD 附近的迁移提交：
+当前 HEAD 附近的迁移/同步提交：
 
 ```text
+fffee2b4c Enforce current provider requirements for the model catalog (#46917)
+9019b6b98 Honor the system clock preference in TUI completion timestamps (#46845)
+9e2b43d90 Preserve required Windows runtime variables for filesystem helpers (#47108)
+e201138bf Decouple tool restrictions from session identity with `ToolPolicy` (#46999)
+eb510d3bc test(app-server): initialize provider extensions
+198514604 feat(tui): render file tool verbs
+6010c6793 feat(mycode): preserve file change tool names
+4586387c3 feat(mycode): add sandboxed file tools
 c160a5a2d7 feat(mycode): add provider wire adapter extensions
 d7c230d430 test(mycode): add cross-wire conformance coverage
 03e64024a9 feat(mycode): decode responses function-only tool calls
 119d4c8514 feat(mycode): adapt responses function-only requests
 67704621c0 feat(mycode): promote wire adapter to provider policy
 c5639d3de6 refactor(mycode): keep chat wire encoding in adapter
-d86b294dfe docs(mycode): describe response adapter capability
-ca907ddbf8 test(mycode): cover canonical chat tool history
-17afc8f7eb feat(mycode): wire chat completions adapter into core
-acc628e5fa feat(mycode): add standalone chat completions transport adapter
-3113263356 feat(mycode): add provider-neutral model wire translation
-bebb70fcee refactor: route response streaming through provider transport
 ```
 
 更早的相关提交：
@@ -74,7 +76,8 @@ f0013687f2 Honor an environment API key on every entry point
 6763c3684b feat(tui): add runtime status line metrics
 ```
 
-不要修改 `main`。不要执行任何会改变 `main` 的命令。
+`main` 只在 fork owner 明确要求时做 fast-forward；不要把 `main`
+直接合入当前分支。
 
 ---
 
@@ -408,11 +411,15 @@ codex-rs/core/src/tools/handlers/file_tools/
 - `seek_sequence` 模块；
 - `AppliedPatchDelta::new`。
 
+已完成：
+
+- TUI/file-change 事件显示真实 `edit_file` / `write_file` 工具名；
+- 上游 `ToolPolicy` 补丁已 cherry-pick，完成工具限制与 session identity
+  解耦。
+
 尚未做：
 
-- TUI/file-change 事件显示真实工具名；
-- 独立 `ApprovalAction::FileMutation` 和独立 approval cache key；
-- 与 `ToolPolicy` cherry-pick 后的最终注册整理。
+- 独立 `ApprovalAction::FileMutation` 和独立 approval cache key。
 
 ---
 
@@ -525,13 +532,14 @@ codex-rs/core/src/tools/spec_plan.rs
 
 ### 7.1 上游 main
 
-迁移完成前默认不合并或切换上游 `main`：
+迁移完成前默认不把上游 `main` 合入当前分支：
 
-- 不 pull；
+- 不做普通 `git pull`；
 - 不 checkout `main`；
-- 不 reset 到 `main`；
-- 仅在 fork owner 明确要求时 fetch remote-tracking ref 或做临时 worktree
-  cherry-pick 探测。
+- 不 reset 当前分支到 `main`；
+- fork owner 明确要求时，可以 fetch、fast-forward 本地 `main`，或在
+  临时 worktree 做 cherry-pick/merge 探测；
+- 只有经过评估的补丁才 cherry-pick 到 `myXCode-features`。
 
 ### 7.2 Cherry-pick 友好
 
@@ -626,7 +634,7 @@ codex-rs/core/src/client_tests.rs
 
 - [x] 当前分支是 `myXCode-features`；
 - [x] 工作树包含 e/w/r 第一版改动；
-- [x] 上游 `main` 未合并、未切换、未 reset；
+- [x] 上游 `main` 已按 owner 要求 fast-forward；未合入当前分支；
 - [x] 阅读 `docs/mycode-wire-adapter-spec.md`；
 - [x] 完成 `WireAdapter` 策略化；
 - [x] 完成 `ResponsesFunctionOnly`；
@@ -634,7 +642,9 @@ codex-rs/core/src/client_tests.rs
 - [x] 完成 cross-wire conformance；
 - [x] 完成第一类 provider extension 配置层；
 - [x] 完成 e/w/r 纯逻辑 crate 和 core sandbox adapter；
-- [ ] TUI 展示真实文件工具名，尚未实现；
+- [x] TUI 展示真实文件工具名；
+- [x] 完成上游 `ToolPolicy` cherry-pick；
+- [ ] 文件工具独立 approval action/cache key 尚未实现；
 - [ ] Anthropic Messages 暂缓，尚未实现；
 - [ ] 最终 workspace-wide `just test` 尚未执行；
 - [x] 所有改动继续按小提交拆分，保持 cherry-pick 友好。
