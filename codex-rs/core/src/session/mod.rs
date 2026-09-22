@@ -234,7 +234,9 @@ mod guardian_checkpoint;
 mod handlers;
 mod inject;
 mod reasoning_effort;
+mod submission;
 pub(crate) use reasoning_effort::RequestEffortUsage;
+pub(crate) use submission::Submission;
 mod input_queue;
 mod mcp;
 mod mcp_prewarm;
@@ -379,7 +381,6 @@ use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionConfiguredEvent;
 use codex_protocol::protocol::SessionNetworkProxyRuntime;
 use codex_protocol::protocol::StreamErrorEvent;
-use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::ThreadMemoryMode;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
@@ -961,6 +962,7 @@ impl SessionIo {
     pub(crate) async fn submit(&self, op: Op) -> CodexResult<String> {
         self.submit_with_trace(
             op, /*trace*/ None, /*parent_turn_id*/ None, /*root_turn_id*/ None,
+            /*residency_guard*/ None,
         )
         .await
     }
@@ -971,6 +973,7 @@ impl SessionIo {
         trace: Option<W3cTraceContext>,
         parent_turn_id: Option<String>,
         root_turn_id: Option<String>,
+        residency_guard: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
     ) -> CodexResult<String> {
         let id = new_submission_id();
         let sub = Submission {
@@ -979,6 +982,7 @@ impl SessionIo {
             trace,
             parent_turn_id,
             root_turn_id,
+            residency_guard,
         };
         self.submit_with_id(sub).await?;
         Ok(id)
@@ -1018,6 +1022,7 @@ impl SessionIo {
             trace,
             parent_turn_id: None,
             root_turn_id: None,
+            residency_guard: None,
         })
         .await?;
         reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))
@@ -1041,6 +1046,7 @@ impl SessionIo {
             trace,
             parent_turn_id: None,
             root_turn_id: None,
+            residency_guard: None,
         })
         .await?;
         reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))

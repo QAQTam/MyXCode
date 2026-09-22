@@ -108,6 +108,7 @@ use tracing::Span;
 use crate::connectors::AppInfo;
 use crate::responses_metadata::CodexResponsesRequestKind;
 use crate::rollout::recorder::RolloutRecorder;
+use crate::session::Submission;
 use crate::state::ActiveTurn;
 use crate::state::TaskKind;
 use crate::tasks::SessionTask;
@@ -171,7 +172,6 @@ use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::RealtimeVoicesList;
 use codex_protocol::protocol::SessionMeta;
 use codex_protocol::protocol::SessionMetaLine;
-use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
@@ -7409,6 +7409,7 @@ async fn submit_with_trace_captures_current_span_trace_context() {
             /*trace*/ None,
             /*parent_turn_id*/ None,
             /*root_turn_id*/ None,
+            /*residency_guard*/ None,
         )
         .await
         .expect("submit should succeed");
@@ -7481,6 +7482,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
             op: Op::Interrupt,
             parent_turn_id: None,
             root_turn_id: None,
+            residency_guard: None,
             trace: Some(submission_trace),
         })
     });
@@ -7509,6 +7511,7 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
         }),
         parent_turn_id: None,
         root_turn_id: None,
+        residency_guard: None,
         trace: None,
     });
 
@@ -7866,6 +7869,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
         op: Op::Interrupt,
         parent_turn_id: None,
         root_turn_id: None,
+        residency_guard: None,
         trace: Some(submission_trace.clone()),
     });
     let dispatch_span_id = dispatch_span.context().span().span_context().span_id();
