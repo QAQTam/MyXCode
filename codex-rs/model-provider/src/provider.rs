@@ -431,6 +431,14 @@ impl ConfiguredModelProvider {
     }
 }
 
+fn default_wire_adapter(info: &ModelProviderInfo) -> WireAdapter {
+    if info.is_openai() || is_azure_responses_provider(&info.name, info.base_url.as_deref()) {
+        WireAdapter::ResponsesNative
+    } else {
+        WireAdapter::ResponsesFunctionOnly
+    }
+}
+
 impl ModelProvider for ConfiguredModelProvider {
     fn info(&self) -> &ModelProviderInfo {
         &self.info
@@ -445,9 +453,10 @@ impl ModelProvider for ConfiguredModelProvider {
             RemoteCompactionSupport::Unsupported
         };
         let wire_adapter = match self.info.response_adapter().unwrap_or_default() {
-            ResponseAdapter::Responses => WireAdapter::ResponsesNative,
-            ResponseAdapter::ResponsesFunctionOnly => WireAdapter::ResponsesFunctionOnly,
-            ResponseAdapter::ChatCompletions => WireAdapter::ChatCompletionsFunctionOnly,
+            Some(ResponseAdapter::Responses) => WireAdapter::ResponsesNative,
+            Some(ResponseAdapter::ResponsesFunctionOnly) => WireAdapter::ResponsesFunctionOnly,
+            Some(ResponseAdapter::ChatCompletions) => WireAdapter::ChatCompletionsFunctionOnly,
+            None => default_wire_adapter(&self.info),
         };
         let wire_capabilities = wire_adapter.capabilities();
 
@@ -726,6 +735,7 @@ mod tests {
             wire_api: WireApi::Responses,
             query_params: None,
             http_headers: None,
+            extensions: None,
             env_http_headers: None,
             request_max_retries: Some(0),
             stream_max_retries: Some(0),
@@ -839,6 +849,51 @@ mod tests {
                 "{configured_adapter}"
             );
         }
+    }
+
+    #[test]
+    fn configured_provider_extension_selects_wire_adapter() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                extensions: Some(codex_model_provider_info::ModelProviderExtensions {
+                    wire_adapter: Some(ResponseAdapter::ResponsesFunctionOnly),
+                }),
+                ..ModelProviderInfo::default()
+            },
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesFunctionOnly
+        );
+        assert!(!provider.capabilities().namespace_tools);
+    }
+
+    #[test]
+    fn configured_provider_defaults_generic_responses_to_function_only() {
+        let provider = create_model_provider(
+            provider_for("https://example.test/v1".to_string()),
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesFunctionOnly
+        );
+    }
+
+    #[test]
+    fn configured_provider_defaults_openai_responses_to_native() {
+        let provider = create_model_provider(
+            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesNative
+        );
     }
 
     #[test]

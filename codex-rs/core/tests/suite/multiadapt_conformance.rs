@@ -228,6 +228,105 @@ async fn switching_from_responses_to_chat_resumes_canonical_history() -> Result<
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn switching_from_responses_native_to_function_only_resumes_canonical_history() -> Result<()>
+{
+    let server = responses::start_mock_server().await;
+    let arguments = tool_arguments(TOOL_OUTPUT);
+    responses::mount_function_call_agent_response(&server, TOOL_CALL_ID, &arguments, TOOL_NAME)
+        .await;
+    responses::mount_sse_once(
+        &server,
+        responses::sse(vec![
+            responses::ev_response_created("resp-second"),
+            responses::ev_assistant_message("msg-second", "done"),
+            responses::ev_completed("resp-second"),
+        ]),
+    )
+    .await;
+    let resumed_mock = responses::mount_sse_once(
+        &server,
+        responses::sse(vec![
+            responses::ev_response_created("resp-third"),
+            responses::ev_assistant_message("msg-third", "done"),
+            responses::ev_completed("resp-third"),
+        ]),
+    )
+    .await;
+
+    let initial = test_codex()
+        .with_config(|config| AdapterProfile::ResponsesNative.configure(config))
+        .build_with_auto_env(&server)
+        .await?;
+    initial
+        .submit_turn("run the native conformance tool")
+        .await?;
+    initial.submit_turn("second native turn").await?;
+
+    let resumed = test_codex()
+        .with_config(|config| AdapterProfile::ResponsesFunctionOnly.configure(config))
+        .restart(&server, &initial)
+        .await?;
+    resumed.submit_turn("continue on function only").await?;
+
+    let request = resumed_mock.single_request();
+    assert_tool_output(&request, TOOL_CALL_ID, TOOL_OUTPUT)?;
+    assert!(request.body_contains_text("second native turn"));
+    assert!(request.body_contains_text("continue on function only"));
+    let body = request.body_json();
+    assert_responses_function_tool(&body, AdapterProfile::ResponsesFunctionOnly);
+    assert_no_native_responses_tools(&body);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn switching_from_function_only_to_responses_native_resumes_canonical_history() -> Result<()>
+{
+    let server = responses::start_mock_server().await;
+    let arguments = tool_arguments(TOOL_OUTPUT);
+    responses::mount_function_call_agent_response(&server, TOOL_CALL_ID, &arguments, TOOL_NAME)
+        .await;
+    responses::mount_sse_once(
+        &server,
+        responses::sse(vec![
+            responses::ev_response_created("resp-second"),
+            responses::ev_assistant_message("msg-second", "done"),
+            responses::ev_completed("resp-second"),
+        ]),
+    )
+    .await;
+    let resumed_mock = responses::mount_sse_once(
+        &server,
+        responses::sse(vec![
+            responses::ev_response_created("resp-third"),
+            responses::ev_assistant_message("msg-third", "done"),
+            responses::ev_completed("resp-third"),
+        ]),
+    )
+    .await;
+
+    let initial = test_codex()
+        .with_config(|config| AdapterProfile::ResponsesFunctionOnly.configure(config))
+        .build_with_auto_env(&server)
+        .await?;
+    initial
+        .submit_turn("run the function-only conformance tool")
+        .await?;
+    initial.submit_turn("second function-only turn").await?;
+
+    let resumed = test_codex()
+        .with_config(|config| AdapterProfile::ResponsesNative.configure(config))
+        .restart(&server, &initial)
+        .await?;
+    resumed.submit_turn("continue on native responses").await?;
+
+    let request = resumed_mock.single_request();
+    assert_tool_output(&request, TOOL_CALL_ID, TOOL_OUTPUT)?;
+    assert!(request.body_contains_text("second function-only turn"));
+    assert!(request.body_contains_text("continue on native responses"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn subagent_delivery_on_function_only_wires() -> Result<()> {
     let server = responses::start_mock_server().await;
     responses::mount_sse_once(

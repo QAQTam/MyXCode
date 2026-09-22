@@ -186,6 +186,7 @@ fn model_provider_from_proto(
         wire_api,
         query_params: provider.query_params.map(redacted_string_map),
         http_headers: provider.http_headers.map(redacted_string_map),
+        extensions: None,
         env_http_headers: provider.env_http_headers.map(|map| map.values),
         request_max_retries: provider.request_max_retries,
         stream_max_retries: provider.stream_max_retries,
@@ -216,6 +217,7 @@ fn model_provider_to_proto(
         wire_api,
         query_params,
         http_headers,
+        extensions: _,
         env_http_headers,
         request_max_retries,
         stream_max_retries,
@@ -566,6 +568,7 @@ mod tests {
                 "2026-04-16".into(),
             )])),
             http_headers: Some(HashMap::from([("X-Test".to_string(), "enabled".into())])),
+            extensions: None,
             env_http_headers: Some(HashMap::from([(
                 "X-Env".to_string(),
                 "LOCAL_HEADER".to_string(),

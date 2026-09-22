@@ -112,7 +112,12 @@ fn test_model_client_with_thread_id(
     thread_id: ThreadId,
     session_source: SessionSource,
 ) -> ModelClient {
-    let provider = create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    let mut provider =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    provider.http_headers = Some(std::collections::HashMap::from([(
+        RESPONSE_ADAPTER_HEADER.to_string(),
+        "responses".into(),
+    )]));
     ModelClient::new(
         /*auth_manager*/ None,
         AgentIdentityAuthPolicy::JwtOnly,

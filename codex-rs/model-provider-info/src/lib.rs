@@ -47,7 +47,9 @@ pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
 pub const RESPONSE_ADAPTER_HEADER: &str = "x-codex-response-adapter";
 
 /// Response transport selected for a provider.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(rename_all = "snake_case")]
 pub enum ResponseAdapter {
     /// The canonical Responses API transport.
     #[default]
@@ -56,6 +58,14 @@ pub enum ResponseAdapter {
     ResponsesFunctionOnly,
     /// Translate canonical requests to Chat Completions.
     ChatCompletions,
+}
+
+/// Fork-specific provider extensions that do not belong to the upstream provider schema.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ModelProviderExtensions {
+    /// Wire adapter selected for this provider.
+    pub wire_adapter: Option<ResponseAdapter>,
 }
 
 impl fmt::Display for ResponseAdapter {
@@ -213,6 +223,8 @@ pub struct ModelProviderInfo {
     /// Additional HTTP headers to include in requests to this provider where
     /// the (key, value) pairs are the header name and value.
     pub http_headers: Option<HashMap<String, RedactedString>>,
+    /// Fork-specific provider extensions.
+    pub extensions: Option<ModelProviderExtensions>,
     /// Optional HTTP headers to include in requests to this provider where the
     /// (key, value) pairs are the header name and _environment variable_ whose
     /// value should be used. If the environment variable is not set, or the
@@ -312,17 +324,32 @@ fn default_aws_auth_refresh_timeout_ms() -> NonZeroU64 {
 
 impl ModelProviderInfo {
     /// Returns the response adapter selected by this provider.
-    pub fn response_adapter(&self) -> Result<ResponseAdapter, String> {
-        let Some(headers) = self.http_headers.as_ref() else {
-            return Ok(ResponseAdapter::default());
-        };
-        let Some(value) = headers.iter().find_map(|(name, value)| {
-            name.eq_ignore_ascii_case(RESPONSE_ADAPTER_HEADER)
-                .then_some(value.as_str())
-        }) else {
-            return Ok(ResponseAdapter::default());
-        };
-        ResponseAdapter::from_str(value)
+    pub fn response_adapter(&self) -> Result<Option<ResponseAdapter>, String> {
+        let extension = self
+            .extensions
+            .as_ref()
+            .and_then(|extensions| extensions.wire_adapter);
+        let header = self
+            .http_headers
+            .as_ref()
+            .and_then(|headers| {
+                headers.iter().find_map(|(name, value)| {
+                    name.eq_ignore_ascii_case(RESPONSE_ADAPTER_HEADER)
+                        .then_some(value.as_str())
+                })
+            })
+            .map(ResponseAdapter::from_str)
+            .transpose()?;
+
+        match (extension, header) {
+            (Some(extension), Some(header)) if extension != header => Err(format!(
+                "conflicting response adapter configuration: \
+                 `extensions.wire_adapter` is `{extension}` but `{RESPONSE_ADAPTER_HEADER}` is `{header}`"
+            )),
+            (Some(extension), _) => Ok(Some(extension)),
+            (None, Some(header)) => Ok(Some(header)),
+            (None, None) => Ok(None),
+        }
     }
 
     /// Checks that a configured Bedrock entry only customizes supported fields.
@@ -333,6 +360,7 @@ impl ModelProviderInfo {
             auth: None,
             aws: None,
             http_headers: None,
+            extensions: None,
             ..self.clone()
         };
         if unsupported_fields != Self::default() {
@@ -594,6 +622,7 @@ other non-default provider fields are not supported"
                     .into_iter()
                     .collect(),
             ),
+            extensions: None,
             env_http_headers: Some(
                 [
                     (
@@ -643,6 +672,7 @@ other non-default provider fields are not supported"
                 AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER.to_string(),
                 AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_VALUE.into(),
             )])),
+            extensions: None,
             env_http_headers: None,
             request_max_retries: None,
             stream_max_retries: None,
@@ -816,6 +846,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         wire_api,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: None,
         stream_max_retries: None,

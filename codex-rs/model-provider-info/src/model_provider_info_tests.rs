@@ -69,8 +69,79 @@ fn response_adapter_reads_reserved_provider_header() {
             ..ModelProviderInfo::create_openai_provider(/*base_url*/ None)
         };
 
-        assert_eq!(info.response_adapter(), Ok(expected));
+        assert_eq!(info.response_adapter(), Ok(Some(expected)));
     }
+}
+
+#[test]
+fn response_adapter_reads_provider_extension() {
+    let info = ModelProviderInfo {
+        extensions: Some(ModelProviderExtensions {
+            wire_adapter: Some(ResponseAdapter::ResponsesFunctionOnly),
+        }),
+        ..ModelProviderInfo::default()
+    };
+
+    assert_eq!(
+        info.response_adapter(),
+        Ok(Some(ResponseAdapter::ResponsesFunctionOnly))
+    );
+}
+
+#[test]
+fn deserializes_provider_extension_wire_adapter() {
+    let provider: ModelProviderInfo = toml::from_str(
+        r#"
+name = "Example"
+base_url = "https://example.com"
+
+[extensions]
+wire_adapter = "responses_function_only"
+"#,
+    )
+    .expect("provider extension should deserialize");
+
+    assert_eq!(
+        provider.extensions,
+        Some(ModelProviderExtensions {
+            wire_adapter: Some(ResponseAdapter::ResponsesFunctionOnly),
+        })
+    );
+}
+
+#[test]
+fn rejects_unknown_provider_extension_wire_adapter() {
+    let error = toml::from_str::<ModelProviderInfo>(
+        r#"
+name = "Example"
+base_url = "https://example.com"
+
+[extensions]
+wire_adapter = "not-real"
+"#,
+    )
+    .expect_err("unknown wire adapter should fail");
+
+    assert!(error.to_string().contains("unknown variant `not-real`"));
+}
+
+#[test]
+fn conflicting_response_adapter_configuration_is_rejected() {
+    let info = ModelProviderInfo {
+        extensions: Some(ModelProviderExtensions {
+            wire_adapter: Some(ResponseAdapter::ResponsesFunctionOnly),
+        }),
+        http_headers: Some(maplit::hashmap! {
+            RESPONSE_ADAPTER_HEADER.to_string() => "chat_completions".into(),
+        }),
+        ..ModelProviderInfo::default()
+    };
+
+    assert!(
+        info.response_adapter()
+            .expect_err("conflicting adapters should fail")
+            .contains("conflicting response adapter configuration")
+    );
 }
 
 #[test]
@@ -129,6 +200,7 @@ base_url = "http://localhost:11434/v1"
         wire_api: WireApi::Responses,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: None,
         stream_max_retries: None,
@@ -166,6 +238,7 @@ query_params = { api-version = "2025-04-01-preview" }
             "api-version".to_string() => "2025-04-01-preview".into(),
         }),
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: None,
         stream_max_retries: None,
@@ -205,6 +278,7 @@ supports_standalone_web_search = true
         http_headers: Some(maplit::hashmap! {
             "X-Example-Header".to_string() => "example-value".into(),
         }),
+        extensions: None,
         env_http_headers: Some(maplit::hashmap! {
             "X-Example-Env-Header".to_string() => "EXAMPLE_ENV_VAR".to_string(),
         }),
@@ -395,6 +469,7 @@ fn test_create_amazon_bedrock_provider() {
                 AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER.to_string() =>
                     AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_VALUE.into(),
             }),
+            extensions: None,
             env_http_headers: None,
             request_max_retries: None,
             stream_max_retries: None,
