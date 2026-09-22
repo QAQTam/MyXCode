@@ -14,6 +14,7 @@ pub(crate) struct PatchHistoryCell {
     activity_id: String,
     changes: HashMap<PathBuf, FileChange>,
     cwd: PathBuf,
+    tool_name: Option<String>,
 }
 
 impl PatchHistoryCell {
@@ -34,6 +35,7 @@ impl HistoryCell for PatchHistoryCell {
             &self.cwd,
             usize::from(width),
             super::activity_preview::DETAIL_PREVIEW_LINES,
+            self.tool_name.as_deref(),
         )
     }
 
@@ -46,6 +48,7 @@ impl HistoryCell for PatchHistoryCell {
             &self.changes,
             &self.cwd,
             usize::from(width),
+            self.tool_name.as_deref(),
         )
     }
 
@@ -67,11 +70,13 @@ impl HistoryCell for PatchHistoryCell {
 pub(crate) fn new_patch_event(
     changes: HashMap<PathBuf, FileChange>,
     cwd: &Path,
+    tool_name: Option<String>,
 ) -> PatchHistoryCell {
     PatchHistoryCell {
         activity_id: format!("patch:{}", uuid::Uuid::new_v4()),
         changes,
         cwd: cwd.to_path_buf(),
+        tool_name,
     }
 }
 

@@ -60,6 +60,7 @@ fn patch_item() -> ThreadItem {
         id: ITEM_ID.to_string(),
         changes: changes(),
         status: PatchApplyStatus::InProgress,
+        tool_name: None,
     }
 }
 

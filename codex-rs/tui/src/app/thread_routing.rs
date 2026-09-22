@@ -423,6 +423,7 @@ impl App {
             .add_to_history(history_cell::new_patch_event(
                 request.changes.clone(),
                 &request.cwd,
+                /*tool_name*/ None,
             ));
     }
 

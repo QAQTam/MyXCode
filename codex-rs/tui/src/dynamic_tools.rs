@@ -1435,6 +1435,7 @@ fn turn_summary(turn: &Turn, include_outputs: bool, output_chars: usize) -> Valu
                 id,
                 changes,
                 status,
+                ..
             } => json!({
                 "type": "fileChange",
                 "id": id,

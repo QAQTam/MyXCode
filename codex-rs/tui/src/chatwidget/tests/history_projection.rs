@@ -345,6 +345,7 @@ async fn snapshot_formatter_empty_success_and_failed_patch_keep_their_outcomes()
             id: "empty".to_string(),
             changes: Vec::new(),
             status: AppServerPatchApplyStatus::Completed,
+            tool_name: None,
         },
         "turn".to_string(),
         ReplayKind::ThreadSnapshot,
@@ -370,6 +371,7 @@ fn patch_item(status: AppServerPatchApplyStatus) -> AppServerThreadItem {
             diff: "@@ -1 +1 @@\n-old sample\n+new sample\n".to_string(),
         }],
         status,
+        tool_name: None,
     }
 }
 

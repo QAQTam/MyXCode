@@ -64,6 +64,7 @@ fn completed_patch_restores_rich_diff_and_styles() {
             ),
         ]),
         cwd.as_path(),
+        /*tool_name*/ None,
     );
     changes[2].diff.push_str("\n\nMoved to: src/after.rs");
     let actual = cells(
@@ -71,6 +72,7 @@ fn completed_patch_restores_rich_diff_and_styles() {
             id: "patch-1".to_string(),
             changes,
             status: PatchApplyStatus::Completed,
+            tool_name: None,
         },
         &cwd,
     );
@@ -101,6 +103,7 @@ fn unfinished_and_rejected_patches_keep_their_outcome() {
                     diff: "fn main() {}\n".to_string(),
                 }],
                 status,
+                tool_name: None,
             },
             &cwd,
         )
