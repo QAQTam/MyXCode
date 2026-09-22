@@ -2447,6 +2447,21 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
     // Keep the scenario and its large setup/resume futures off the test thread's stack.
     runtime.block_on(Box::pin(async {
         let (mut app, mut app_event_rx, _op_rx) = Box::pin(make_test_app_with_channels()).await;
+        // Persisted thread metadata determines each child's capability in this test.
+        app.config
+            .features
+            .disable(codex_features::Feature::MultiAgentV2)
+            .expect("test setup should allow disabling multi-agent v2");
+        app.config.model = Some("gpt-5.6-luna".to_string());
+        std::fs::write(
+            app.config.codex_home.join("config.toml"),
+            r#"
+model = "gpt-5.6-luna"
+
+[features]
+multi_agent_v2 = false
+"#,
+        )?;
         let root_thread_id = ThreadId::new();
         let rollout_dir = app
             .config
@@ -2526,7 +2541,7 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
             &app.local_settings,
             app.config.clone(),
             root_thread_id,
-            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
         ))
         .await?;
         app.enqueue_primary_thread_session(root.session, root.turns)

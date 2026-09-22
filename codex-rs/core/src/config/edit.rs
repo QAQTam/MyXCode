@@ -889,7 +889,7 @@ impl ConfigEditsBuilder {
         let is_default_false_feature = FEATURES
             .iter()
             .find(|spec| spec.key == key)
-            .is_some_and(|spec| !spec.default_enabled);
+            .is_some_and(|spec| !spec.id.default_enabled());
         if enabled || !is_default_false_feature {
             self.edits.push(ConfigEdit::SetPath {
                 segments,

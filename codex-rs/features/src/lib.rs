@@ -428,6 +428,19 @@ pub enum Feature {
     ResponsesWebsocketsV2,
 }
 
+/// Features promoted to fork defaults while upstream keeps them opt-in.
+///
+/// Add future fork defaults here instead of changing each feature check or
+/// requiring users to duplicate the same settings in `config.toml`.
+const FORK_DEFAULT_FEATURES: &[Feature] = &[
+    Feature::CodeMode,
+    Feature::ApplyPatchStreamingEvents,
+    Feature::DefaultModeRequestUserInput,
+    Feature::MultiAgentV2,
+    Feature::AgentMessageBoard,
+    Feature::SendMessageToUserAsync,
+];
+
 impl Feature {
     pub fn key(self) -> &'static str {
         self.info().key
@@ -437,8 +450,9 @@ impl Feature {
         self.info().stage
     }
 
+    /// Whether this feature is enabled by the fork's built-in defaults.
     pub fn default_enabled(self) -> bool {
-        self.info().default_enabled
+        self.info().default_enabled || FORK_DEFAULT_FEATURES.contains(&self)
     }
 
     fn info(self) -> &'static FeatureSpec {
@@ -493,7 +507,7 @@ impl Features {
     pub fn with_defaults() -> Self {
         let mut set = BTreeSet::new();
         for spec in FEATURES {
-            if spec.default_enabled {
+            if spec.id.default_enabled() {
                 set.insert(spec.id);
             }
         }
@@ -565,7 +579,7 @@ impl Features {
             if matches!(feature.stage, Stage::Removed) {
                 continue;
             }
-            if self.enabled(feature.id) != feature.default_enabled {
+            if self.enabled(feature.id) != feature.id.default_enabled() {
                 otel.counter(
                     "codex.feature.state",
                     /*inc*/ 1,

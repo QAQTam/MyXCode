@@ -373,7 +373,7 @@ impl CatalogRequestProcessor {
                     description,
                     announcement,
                     enabled: config.features.enabled(spec.id),
-                    default_enabled: spec.default_enabled,
+                    default_enabled: spec.id.default_enabled(),
                 }
             })
             .collect::<Vec<_>>();

@@ -1139,7 +1139,7 @@ fn feature_flag_details(config: &Config, details: &mut Vec<String>) {
         .collect::<Vec<_>>();
     let overrides = FEATURES
         .iter()
-        .filter(|spec| features.enabled(spec.id) != spec.default_enabled)
+        .filter(|spec| features.enabled(spec.id) != spec.id.default_enabled())
         .map(|spec| format!("{}={}", spec.key, features.enabled(spec.id)))
         .collect::<Vec<_>>();
     details.push(format!("feature flags enabled: {}", enabled_features.len()));
