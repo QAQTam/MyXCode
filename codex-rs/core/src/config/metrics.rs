@@ -10,7 +10,9 @@ pub(crate) fn emit_session_start_metrics(config: &Config, telemetry: &SessionTel
         if matches!(feature.stage, Stage::Removed) {
             continue;
         }
-        if config.features.enabled(feature.id) != feature.default_enabled {
+        // Compare against the fork's built-in defaults, not the upstream spec
+        // value, so promoted fork defaults are not reported as overrides.
+        if config.features.enabled(feature.id) != feature.id.default_enabled() {
             telemetry.counter(
                 "codex.feature.state",
                 /*inc*/ 1,

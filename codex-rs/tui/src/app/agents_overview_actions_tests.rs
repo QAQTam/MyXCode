@@ -410,6 +410,11 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
         };
         let (mut app, mut rx, _op_rx) =
             Box::pin(crate::app::tests::make_test_app_with_channels()).await;
+        // This lifecycle test exercises direct resume of spawned children, which is V1-only.
+        app.config
+            .features
+            .disable(codex_features::Feature::MultiAgentV2)
+            .expect("test setup should allow disabling multi-agent v2");
         let (release, gate) = tokio::sync::oneshot::channel();
         let (server, _completions) = start_streaming_sse_server(vec![vec![
             StreamingSseChunk {
@@ -422,7 +427,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
             },
         ]])
         .await;
-        app.config.model = Some("gpt-5.2".into());
+        app.config.model = Some("gpt-5.6-luna".into());
         app.config.model_provider_id = "lifecycle-test".into();
         app.config.model_provider = ModelProviderInfo {
             name: "Lifecycle test".into(),
@@ -432,9 +437,10 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
             ..ModelProviderInfo::default()
         };
         app_test_support::MockResponsesConfig::new(server.uri())
-            .with_model("gpt-5.2")
+            .with_model("gpt-5.6-luna")
             .with_model_provider("lifecycle-test")
             .with_provider_name("Lifecycle test")
+            .disable_feature(codex_features::Feature::MultiAgentV2)
             .write(app.config.codex_home.as_path())?;
         let mut app_server =
             Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
@@ -503,7 +509,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
             &app.local_settings,
             app.config.clone(),
             primary,
-            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
         ))
         .await?;
         app.enqueue_primary_thread_session(resumed.session, resumed.turns)
@@ -565,7 +571,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
                 &app.local_settings,
                 app.config.clone(),
                 primary,
-                crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
             ))
             .await?;
             app.enqueue_primary_thread_session(resumed.session, resumed.turns)

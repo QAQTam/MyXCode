@@ -80,7 +80,7 @@ async fn experimental_feature_list_returns_feature_metadata_with_stage() -> Resu
                 description,
                 announcement,
                 enabled: config.features.enabled(spec.id),
-                default_enabled: spec.default_enabled,
+                default_enabled: spec.id.default_enabled(),
             }
         })
         .collect::<Vec<_>>();

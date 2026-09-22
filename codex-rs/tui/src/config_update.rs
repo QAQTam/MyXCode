@@ -126,7 +126,7 @@ pub(crate) fn build_feature_enabled_edit(feature_key: &str, enabled: bool) -> Co
     let is_default_false_feature = FEATURES
         .iter()
         .find(|spec| spec.key == feature_key)
-        .is_some_and(|spec| !spec.default_enabled);
+        .is_some_and(|spec| !spec.id.default_enabled());
     if enabled || !is_default_false_feature {
         replace_config_value(key_path, serde_json::json!(enabled))
     } else {

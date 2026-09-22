@@ -340,7 +340,7 @@ impl BottomPaneView for ExperimentalFeaturesView {
                         ) || FEATURES.iter().any(|spec| {
                             spec.key == feature.name
                                 && spec.stage.experimental_menu_name().is_some()
-                                && spec.default_enabled == feature.default_enabled
+                                && spec.id.default_enabled() == feature.default_enabled
                         }),
                         key: feature.name.clone(),
                         name: feature.display_name.unwrap_or(feature.name),

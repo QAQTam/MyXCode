@@ -63,11 +63,20 @@ pub(crate) async fn start_temporary_thread(
     let custom_permission_profile =
         active_permission_profile.filter(|profile| !profile.starts_with(':'));
     let mut config = std::collections::HashMap::from([
+        ("features.agent_message_board".to_string(), false.into()),
         ("features.apps".to_string(), false.into()),
+        (
+            "features.apply_patch_streaming_events".to_string(),
+            false.into(),
+        ),
         ("features.code_mode".to_string(), false.into()),
         ("features.code_mode_only".to_string(), false.into()),
         ("features.context_management".to_string(), false.into()),
         ("features.current_time_reminder".to_string(), false.into()),
+        (
+            "features.default_mode_request_user_input".to_string(),
+            false.into(),
+        ),
         ("features.deferred_executor".to_string(), false.into()),
         ("features.enable_fanout".to_string(), false.into()),
         ("features.goals".to_string(), false.into()),
@@ -79,6 +88,10 @@ pub(crate) async fn start_temporary_thread(
         ("features.plugins".to_string(), false.into()),
         (
             "features.request_permissions_tool".to_string(),
+            false.into(),
+        ),
+        (
+            "features.send_message_to_user_async".to_string(),
             false.into(),
         ),
         ("features.shell_snapshot".to_string(), false.into()),

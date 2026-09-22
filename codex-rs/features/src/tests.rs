@@ -123,6 +123,25 @@ fn default_enabled_features_are_stable() {
 }
 
 #[test]
+fn fork_default_features_are_enabled_and_can_be_disabled() {
+    for &feature in crate::FORK_DEFAULT_FEATURES {
+        assert!(Features::with_defaults().enabled(feature));
+
+        let overrides = FeaturesToml::from(BTreeMap::from([(feature.key().to_string(), false)]));
+        let features = Features::from_sources(
+            FeatureConfigSource {
+                features: Some(&overrides),
+                ..Default::default()
+            },
+            FeatureConfigSource::default(),
+            FeatureOverrides::default(),
+        );
+
+        assert!(!features.enabled(feature), "failed to disable {feature:?}");
+    }
+}
+
+#[test]
 fn removed_apps_mcp_path_override_shapes_are_ignored() {
     let features = [
         toml::from_str::<FeaturesToml>("apps_mcp_path_override = true")

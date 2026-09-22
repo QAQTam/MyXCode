@@ -611,8 +611,8 @@ async fn load_config_resolves_non_prefixed_mcp_tool_servers() -> std::io::Result
 async fn load_config_resolves_update_plan_enabled() -> std::io::Result<()> {
     let codex_home = tempdir()?;
     for (config_toml, expected_enabled) in [
-        ("", false),
-        ("[tools.update_plan]", false),
+        ("", true),
+        ("[tools.update_plan]", true),
         ("[tools.update_plan]\nenabled = false", false),
         ("[tools.update_plan]\nenabled = true", true),
     ] {
