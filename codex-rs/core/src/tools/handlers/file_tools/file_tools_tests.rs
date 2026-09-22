@@ -210,6 +210,7 @@ async fn edit_handler_rewrites_and_emits_file_change() {
 
     let item = completed_file_change(&rx_event).await;
     assert_eq!(item.id, "call-edit");
+    assert_eq!(item.tool_name.as_deref(), Some("edit_file"));
     let change = item
         .changes
         .get(&file)
@@ -242,6 +243,7 @@ async fn write_handler_creates_and_refuses_to_overwrite() {
 
     let item = completed_file_change(&rx_event).await;
     assert_eq!(item.id, "call-write");
+    assert_eq!(item.tool_name.as_deref(), Some("write_file"));
     let change = item
         .changes
         .get(&file)

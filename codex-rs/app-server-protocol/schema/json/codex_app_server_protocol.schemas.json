@@ -21815,6 +21815,14 @@
               "status": {
                 "$ref": "#/definitions/v2/PatchApplyStatus"
               },
+              "toolName": {
+                "default": null,
+                "description": "Tool that produced this file change, when known.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "type": {
                 "enum": [
                   "fileChange"

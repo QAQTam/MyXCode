@@ -2830,6 +2830,7 @@ fn tool_item_event(input: ToolItemEventInput<'_>) -> Option<TrackEventRequest> {
             id,
             changes,
             status,
+            ..
         } => {
             let (terminal_status, failure_kind) = patch_apply_outcome(status)?;
             let counts = file_change_counts(changes);

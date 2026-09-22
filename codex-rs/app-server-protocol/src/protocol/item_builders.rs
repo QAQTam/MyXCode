@@ -74,6 +74,7 @@ pub fn build_file_change_approval_request_item(
         id: payload.call_id.clone(),
         changes: convert_patch_changes(&payload.changes),
         status: PatchApplyStatus::InProgress,
+        tool_name: None,
     }
 }
 
@@ -82,6 +83,7 @@ pub fn build_file_change_begin_item(payload: &PatchApplyBeginEvent) -> ThreadIte
         id: payload.call_id.clone(),
         changes: convert_patch_changes(&payload.changes),
         status: PatchApplyStatus::InProgress,
+        tool_name: payload.tool_name.clone(),
     }
 }
 
@@ -90,6 +92,7 @@ pub fn build_file_change_end_item(payload: &PatchApplyEndEvent) -> ThreadItem {
         id: payload.call_id.clone(),
         changes: convert_patch_changes(&payload.changes),
         status: (&payload.status).into(),
+        tool_name: payload.tool_name.clone(),
     }
 }
 

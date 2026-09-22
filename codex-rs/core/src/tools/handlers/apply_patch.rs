@@ -581,6 +581,7 @@ async fn execute_verified_patch(
     )?;
     let changes = convert_apply_patch_to_protocol(&apply.action);
     let emitter = ToolEmitter::apply_patch_for_environment(
+        tool_ctx.tool_name.name.clone(),
         changes.clone(),
         apply.auto_approved,
         turn_environment.selection.environment_id.clone(),

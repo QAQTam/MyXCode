@@ -3937,6 +3937,7 @@ async fn turn_start_file_change_approval_v2() -> Result<()> {
         ref id,
         status,
         ref changes,
+        ..
     } = started_file_change
     else {
         unreachable!("loop ensures we break on file change items");
@@ -5422,6 +5423,7 @@ async fn run_turn_start_file_change_approval_rejection_v2(
         ref id,
         status,
         ref changes,
+        ..
     } = started_file_change
     else {
         unreachable!("loop ensures we break on file change items");

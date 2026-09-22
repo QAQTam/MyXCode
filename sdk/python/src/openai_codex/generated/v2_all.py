@@ -9698,6 +9698,10 @@ class FileChangeThreadItem(BaseModel):
     changes: list[FileUpdateChange]
     id: str
     status: PatchApplyStatus
+    tool_name: Annotated[
+        str | None,
+        Field(alias="toolName", description="Tool that produced this file change, when known."),
+    ] = None
     type: Annotated[Literal["fileChange"], Field(title="FileChangeThreadItemType")]
 
 

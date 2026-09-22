@@ -246,6 +246,7 @@ pub(super) async fn run_file_mutation(
 ) -> Result<(), FunctionCallError> {
     let changes = (*request.protocol_changes).clone();
     let emitter = ToolEmitter::apply_patch_for_environment(
+        tool_ctx.tool_name.name.clone(),
         changes,
         auto_approved,
         request.turn_environment.selection.environment_id.clone(),

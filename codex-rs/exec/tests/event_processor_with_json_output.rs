@@ -887,6 +887,7 @@ fn file_change_completion_maps_change_kinds() {
         ItemCompletedNotification {
             item: ThreadItem::FileChange {
                 id: "patch-1".to_string(),
+                tool_name: None,
                 changes: vec![
                     ApiFileUpdateChange {
                         path: "a/added.txt".to_string(),
@@ -950,6 +951,7 @@ fn file_change_declined_maps_to_failed_status() {
         ItemCompletedNotification {
             item: ThreadItem::FileChange {
                 id: "patch-2".to_string(),
+                tool_name: None,
                 changes: vec![ApiFileUpdateChange {
                     path: "file.txt".to_string(),
                     kind: ApiPatchChangeKind::Update { move_path: None },

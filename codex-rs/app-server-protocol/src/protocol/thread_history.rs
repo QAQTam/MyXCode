@@ -3442,6 +3442,7 @@ mod tests {
                 stdout: String::new(),
                 stderr: "patch rejected by user".into(),
                 success: false,
+                tool_name: None,
                 changes: [(
                     PathBuf::from("README.md"),
                     codex_protocol::protocol::FileChange::Add {
@@ -3491,6 +3492,7 @@ mod tests {
                     diff: "hello\n".into(),
                 }],
                 status: PatchApplyStatus::Declined,
+                tool_name: None,
             }
         );
     }
@@ -4114,6 +4116,7 @@ mod tests {
                 call_id: "patch-call".into(),
                 turn_id: turn_id.to_string(),
                 auto_approved: false,
+                tool_name: None,
                 changes: [(
                     PathBuf::from("README.md"),
                     codex_protocol::protocol::FileChange::Add {
@@ -4153,6 +4156,7 @@ mod tests {
                         diff: "hello\n".into(),
                     }],
                     status: PatchApplyStatus::InProgress,
+                    tool_name: None,
                 },
             ]
         );
@@ -4224,6 +4228,7 @@ mod tests {
                         diff: "hello\n".into(),
                     }],
                     status: PatchApplyStatus::InProgress,
+                    tool_name: None,
                 },
             ]
         );

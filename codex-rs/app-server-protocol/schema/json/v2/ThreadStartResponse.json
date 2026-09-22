@@ -1910,6 +1910,14 @@
             "status": {
               "$ref": "#/definitions/PatchApplyStatus"
             },
+            "toolName": {
+              "default": null,
+              "description": "Tool that produced this file change, when known.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "type": {
               "enum": [
                 "fileChange"
