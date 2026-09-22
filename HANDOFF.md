@@ -6,18 +6,20 @@
 
 设计文档：`docs/mycode-wire-adapter-spec.md`
 
-> **迁移完成前，不允许同步上游 `main`。**
+> **迁移完成前，默认不合并或切换上游 `main`。**
 >
 > 具体禁止：
 >
-> - 不要 `git fetch upstream`
 > - 不要 `git pull`
 > - 不要 `git checkout main`
 > - 不要 `git reset --hard main`
 > - 不要为了“先保持干净”而移动当前分支 HEAD
 >
-> `main` 继续作为上游镜像保留，不接收 fork 改动。等当前迁移完成并由 fork
-> owner 明确解除限制后，再讨论上游同步。
+> fork owner 明确要求检查上游时，可以 `git fetch upstream main` 读取
+> remote-tracking ref，或使用临时 worktree 做 cherry-pick 探测；不得把
+> `main` 的内容直接合入当前分支。当前已按此方式检查到
+> `upstream/main = 30daed37ad`，没有发现新的 `apply-patch` /
+> `file-system` 执行 API。
 
 ---
 
@@ -27,11 +29,16 @@ Chat、ResponsesNative、ResponsesFunctionOnly 三条 wire 路径已经稳定接
 并具备 canonical history、ToolPlan、SSE 解析、返回侧工具名反解、跨 wire
 conformance 和第一类 provider extension 配置能力。
 
-当前工作区干净，剩余工作只有：
+`edit_file`、`read_file`、`write_file` 已按“纯逻辑 crate + core sandbox
+adapter”落地：算法不接触文件系统，core 统一通过 `ExecutorFileSystem`、
+`ToolOrchestrator` 和 `FileSystemSandboxContext` 执行。
+
+当前剩余工作：
 
 - Anthropic Messages（明确暂缓）；
 - 最终完整 `just test` 验证；
-- 后续按需要把 generic Responses 默认策略推广到更多 provider。
+- 后续按需要把 generic Responses 默认策略推广到更多 provider；
+- 视需要在 TUI/file-change 事件中展示真实的 `edit_file` / `write_file` 工具名。
 
 ---
 
@@ -357,6 +364,56 @@ wire_adapter = "responses_function_only"
 - 复用 `CanonicalRequest`、`CanonicalEvent`、`ToolPlan`；
 - 不把 Anthropic message shape 引入 core session state。
 
+### 5.7 e/w/r 文件工具
+
+已完成第一版。
+
+纯逻辑 crate：
+
+```text
+codex-rs/ext/mycode/file-tools/
+```
+
+crate：
+
+```text
+codex-mycode-file-tools
+```
+
+职责：
+
+- `edit_file` exact/fuzzy 匹配和 diff；
+- `read_file` 流式行扫描和 `cat -n` 渲染；
+- `write_file` create-only plan；
+- 三个工具的 JSON function spec。
+
+该 crate 不依赖 `codex-exec-server`，不调用 `std::fs`。
+
+core 薄适配：
+
+```text
+codex-rs/core/src/tools/handlers/file_tools/
+```
+
+- `read_file` 直接使用 sandboxed `ExecutorFileSystem` streaming read；
+- `edit_file` / `write_file` 使用 `FileMutationRuntime`；
+- `FileMutationRuntime` 复用 `ToolOrchestrator`、`ApprovalAction::ApplyPatch`
+  和 `ToolEmitter`；
+- sandbox denial 会映射为 `SandboxErr::Denied`，允许正常 escalation 和重试；
+- 工具注册只要求 `environment_mode.has_environment()`，不再受
+  `model_info.apply_patch_tool_type` 影响。
+
+`codex-apply-patch` 只做了最小公开：
+
+- `seek_sequence` 模块；
+- `AppliedPatchDelta::new`。
+
+尚未做：
+
+- TUI/file-change 事件显示真实工具名；
+- 独立 `ApprovalAction::FileMutation` 和独立 approval cache key；
+- 与 `ToolPolicy` cherry-pick 后的最终注册整理。
+
 ---
 
 ## 6. 阶段状态
@@ -444,19 +501,37 @@ wire_adapter = "responses_function_only"
 
 legacy header 仍作为兼容 alias。
 
+### Step 7：e/w/r 文件工具（第一版已完成）
+
+目标文件：
+
+```text
+codex-rs/ext/mycode/file-tools/
+codex-rs/core/src/tools/handlers/file_tools/
+codex-rs/core/src/tools/spec_plan.rs
+```
+
+产出：
+
+- 纯逻辑与 I/O 分层；
+- `read_file` 走 sandboxed streaming filesystem；
+- `edit_file` / `write_file` 走 `ToolOrchestrator`；
+- sandbox denial 可进入审批和 escalation；
+- `apply_patch` 算法通过 `seek_sequence` 复用。
+
 ---
 
 ## 7. 迁移纪律
 
 ### 7.1 上游 main
 
-迁移完成前：
+迁移完成前默认不合并或切换上游 `main`：
 
-- 不同步上游 `main`；
-- 不 fetch；
 - 不 pull；
 - 不 checkout `main`；
-- 不 reset 到 `main`。
+- 不 reset 到 `main`；
+- 仅在 fork owner 明确要求时 fetch remote-tracking ref 或做临时 worktree
+  cherry-pick 探测。
 
 ### 7.2 Cherry-pick 友好
 
@@ -500,6 +575,13 @@ just test -p codex-config                                    # 339 passed
 just test -p codex-core --lib responses_function_only_       # 3 passed
 just test -p codex-core --lib chat_completions_adapter_      # 2 passed
 just test -p codex-core --test all 'multiadapt_conformance::' # 10 passed
+just test -p codex-mycode-file-tools                         # 18 passed
+just test -p codex-apply-patch                               # 99 passed
+just test -p codex-core --lib spec_plan                      # 56 passed
+just test -p codex-core --lib file_tools                     # 3 passed
+just fix -p codex-mycode-file-tools
+just fix -p codex-apply-patch
+just fix -p codex-core
 just bazel-lock-update
 ```
 
@@ -524,6 +606,11 @@ codex-rs/ext/mycode/model-wire/src/chat.rs
 codex-rs/ext/mycode/model-wire/src/tool_plan.rs
 codex-rs/ext/mycode/chat-adapter/src/client.rs
 codex-rs/ext/mycode/chat-adapter/src/sse.rs
+codex-rs/ext/mycode/file-tools/src/edit.rs
+codex-rs/ext/mycode/file-tools/src/read.rs
+codex-rs/ext/mycode/file-tools/src/spec.rs
+codex-rs/core/src/tools/handlers/file_tools/runtime.rs
+codex-rs/core/src/tools/handlers/file_tools/file_tools_tests.rs
 codex-rs/codex-api/src/transport.rs
 codex-rs/model-provider-info/src/lib.rs
 codex-rs/model-provider/src/provider.rs
@@ -537,15 +624,17 @@ codex-rs/core/src/client_tests.rs
 
 接手后先确认：
 
-- [x] `git status` 干净；
 - [x] 当前分支是 `myXCode-features`；
-- [x] 没有执行任何上游同步；
+- [x] 工作树包含 e/w/r 第一版改动；
+- [x] 上游 `main` 未合并、未切换、未 reset；
 - [x] 阅读 `docs/mycode-wire-adapter-spec.md`；
 - [x] 完成 `WireAdapter` 策略化；
 - [x] 完成 `ResponsesFunctionOnly`；
 - [x] 完成 response-side tool name decoding；
 - [x] 完成 cross-wire conformance；
 - [x] 完成第一类 provider extension 配置层；
+- [x] 完成 e/w/r 纯逻辑 crate 和 core sandbox adapter；
+- [ ] TUI 展示真实文件工具名，尚未实现；
 - [ ] Anthropic Messages 暂缓，尚未实现；
 - [ ] 最终 workspace-wide `just test` 尚未执行；
 - [x] 所有改动继续按小提交拆分，保持 cherry-pick 友好。

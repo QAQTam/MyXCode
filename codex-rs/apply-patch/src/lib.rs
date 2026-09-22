@@ -1,7 +1,7 @@
 mod file_update;
 mod invocation;
 mod parser;
-mod seek_sequence;
+pub mod seek_sequence;
 mod standalone_executable;
 mod streaming_parser;
 mod text_file;
@@ -26,6 +26,7 @@ pub use parser::ParseError;
 use parser::ParseError::*;
 pub use parser::UpdateFileChunk;
 pub use parser::parse_patch;
+
 pub use streaming_parser::StreamingPatchParser;
 use thiserror::Error;
 
@@ -250,7 +251,12 @@ pub struct AppliedPatchDelta {
 }
 
 impl AppliedPatchDelta {
-    fn new(changes: Vec<AppliedPatchChange>, exact: bool) -> Self {
+    /// Builds a delta from changes that a tool has already committed.
+    ///
+    /// Callers must pass `exact: false` whenever the recorded contents are not
+    /// guaranteed byte-exact, which makes the turn diff tracker invalidate
+    /// instead of rendering a misleading diff.
+    pub fn new(changes: Vec<AppliedPatchChange>, exact: bool) -> Self {
         Self { changes, exact }
     }
 

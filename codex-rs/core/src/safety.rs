@@ -7,6 +7,7 @@ use codex_protocol::permissions::FileSystemSandboxPolicyContext;
 use codex_protocol::protocol::AskForApproval;
 use codex_sandboxing::get_platform_sandbox;
 use codex_utils_path_uri::PathUri;
+use std::collections::HashMap;
 
 const PATCH_REJECTED_OUTSIDE_PROJECT_REASON: &str =
     "writing outside of the project; rejected by user approval settings";
@@ -34,7 +35,26 @@ pub fn assess_patch_safety(
     context: &FileSystemSandboxPolicyContext<'_>,
     sandbox_route: PatchSandboxRoute,
 ) -> SafetyCheck {
-    if action.is_empty() {
+    assess_file_mutation_safety(
+        action.changes(),
+        policy,
+        permission_profile,
+        file_system_sandbox_policy,
+        context,
+        sandbox_route,
+    )
+}
+
+/// Assesses a single-file or multi-file mutation without requiring a parsed patch.
+pub(crate) fn assess_file_mutation_safety(
+    changes: &HashMap<PathUri, ApplyPatchFileChange>,
+    policy: AskForApproval,
+    permission_profile: &PermissionProfile,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    context: &FileSystemSandboxPolicyContext<'_>,
+    sandbox_route: PatchSandboxRoute,
+) -> SafetyCheck {
+    if changes.is_empty() {
         return SafetyCheck::Reject {
             reason: "empty patch".to_string(),
         };
@@ -67,7 +87,7 @@ pub fn assess_patch_safety(
     // possible that paths in the patch are hard links to files outside the
     // writable roots, so we should still run `apply_patch` in a sandbox in that case.
     // Disabled and External profiles intentionally do not apply an outer sandbox.
-    if is_write_patch_constrained_to_writable_paths(action, file_system_sandbox_policy, context)
+    if is_write_mutation_constrained_to_writable_paths(changes, file_system_sandbox_policy, context)
         && (matches!(
             permission_profile,
             PermissionProfile::Disabled | PermissionProfile::External { .. }
@@ -103,8 +123,21 @@ fn patch_rejection_reason(
     }
 }
 
+#[cfg(test)]
 fn is_write_patch_constrained_to_writable_paths(
     action: &ApplyPatchAction,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    context: &FileSystemSandboxPolicyContext<'_>,
+) -> bool {
+    is_write_mutation_constrained_to_writable_paths(
+        action.changes(),
+        file_system_sandbox_policy,
+        context,
+    )
+}
+
+fn is_write_mutation_constrained_to_writable_paths(
+    changes: &HashMap<PathUri, ApplyPatchFileChange>,
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     context: &FileSystemSandboxPolicyContext<'_>,
 ) -> bool {
@@ -116,7 +149,7 @@ fn is_write_patch_constrained_to_writable_paths(
     let is_path_writable =
         |path: &PathUri| file_system_sandbox_policy.can_write_path(path, context);
 
-    for (path, change) in action.changes() {
+    for (path, change) in changes {
         match change {
             ApplyPatchFileChange::Add { .. } | ApplyPatchFileChange::Delete { .. } => {
                 if !is_path_writable(path) {

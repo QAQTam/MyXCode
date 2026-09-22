@@ -3020,6 +3020,7 @@ dependencies = [
  "codex-model-provider-info",
  "codex-models-manager",
  "codex-mycode-chat-adapter",
+ "codex-mycode-file-tools",
  "codex-mycode-model-wire",
  "codex-network-proxy",
  "codex-otel",
@@ -4150,6 +4151,17 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "codex-mycode-file-tools"
+version = "0.0.0"
+dependencies = [
+ "codex-apply-patch",
+ "codex-tools",
+ "pretty_assertions",
+ "similar",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

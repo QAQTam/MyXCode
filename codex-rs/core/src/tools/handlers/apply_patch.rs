@@ -61,7 +61,7 @@ use codex_utils_path_uri::PathUri;
 
 const APPLY_PATCH_ARGUMENT_DIFF_BUFFER_INTERVAL: Duration = Duration::from_millis(500);
 
-fn apply_patch_file_update_mode(turn: &TurnContext) -> ApplyPatchFileUpdateMode {
+pub(crate) fn apply_patch_file_update_mode(turn: &TurnContext) -> ApplyPatchFileUpdateMode {
     if turn
         .config
         .features
