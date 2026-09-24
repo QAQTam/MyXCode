@@ -19,6 +19,7 @@ codex-features = { workspace = true }
 codex-file-system = { workspace = true }
 codex-git-utils = { workspace = true }
 codex-model-provider-info = { workspace = true }
+codex-mycode-policy = { workspace = true }
 codex-network-proxy = { workspace = true }
 codex-protocol = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
