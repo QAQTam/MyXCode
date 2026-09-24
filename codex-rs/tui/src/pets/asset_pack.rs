@@ -26,7 +26,13 @@ use super::catalog;
 
 const PET_PACK_VERSION: &str = "v1";
 const PET_PACK_DIR: &str = "cache/tui-pets";
-const PET_CDN_BASE_URL: &str = "https://persistent.oaistatic.com/codex/pets/v1";
+// MyCode: the built-in pet CDN is part of the blocked commercial surface. The
+// `const if` keeps the URL out of the shipped binary.
+const PET_CDN_BASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://persistent.oaistatic.com/codex/pets/v1"
+};
 const PET_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const PET_MAX_DOWNLOAD_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -97,6 +103,11 @@ pub(crate) async fn ensure_builtin_pet(
 }
 
 fn builtin_pet_url(pet: catalog::BuiltinPet) -> Result<String> {
+    // MyCode: never download built-in pet assets from the upstream CDN.
+    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+        bail!("built-in pet assets are disabled in this build");
+    }
+
     let url = format!("{PET_CDN_BASE_URL}/{}", pet.spritesheet_file);
     validate_download_url(&url)?;
     Ok(url)
@@ -194,15 +205,13 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn builtin_pet_url_uses_public_cdn_path() {
+    fn builtin_pet_url_is_disabled_for_mycode_builds() {
         let pet = catalog::builtin_pet("dewey").unwrap();
 
-        let url = builtin_pet_url(pet).unwrap();
+        // MyCode blocks the upstream pet CDN, so the URL builder refuses to run.
+        let error = builtin_pet_url(pet).unwrap_err().to_string();
 
-        assert_eq!(
-            url,
-            "https://persistent.oaistatic.com/codex/pets/v1/dewey-spritesheet-v4.webp"
-        );
+        assert_eq!(error, "built-in pet assets are disabled in this build");
     }
 
     #[test]

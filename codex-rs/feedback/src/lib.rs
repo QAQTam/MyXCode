@@ -571,6 +571,13 @@ impl FeedbackSnapshot {
         options: FeedbackUploadOptions<'_>,
         http_client_factory: &HttpClientFactory,
     ) -> Result<()> {
+        // MyCode: never upload feedback to the built-in Sentry project. The
+        // constant folds this branch away, so `SENTRY_DSN` never reaches the
+        // shipped binary.
+        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+            anyhow::bail!("feedback upload is disabled in this build");
+        }
+
         self.upload_feedback_with_dsn(
             options,
             http_client_factory,

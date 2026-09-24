@@ -13,6 +13,13 @@ pub(crate) const STATSIG_API_KEY: &str = "client-MkRuleRQBd6qakfnDYqJVR9JuXcY57L
 pub(crate) fn resolve_exporter(exporter: &OtelExporter) -> OtelExporter {
     match exporter {
         OtelExporter::Statsig => {
+            // MyCode: never resolve the built-in Statsig ingestion route. The
+            // constant folds this branch away, so the endpoint and the
+            // hard-coded Statsig API key below are absent from MyCode binaries.
+            if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+                return OtelExporter::None;
+            }
+
             // Keep the built-in Statsig default off in debug builds so
             // incremental local development and test runs do not emit
             // best-effort OTEL traffic unless a test or binary opts into an

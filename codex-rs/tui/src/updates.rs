@@ -25,6 +25,13 @@ use crate::version::CODEX_CLI_VERSION;
 pub(crate) use crate::updates_cache::dismiss_version;
 
 pub fn get_upgrade_version(config: &Config) -> Option<String> {
+    // MyCode: never probe the upstream release metadata. The constant folds this
+    // branch away, so the GitHub, Homebrew, and npm registry URLs are absent from
+    // MyCode binaries.
+    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+        return None;
+    }
+
     if !config.check_for_update_on_startup || is_source_build_version(CODEX_CLI_VERSION) {
         return None;
     }
@@ -58,8 +65,18 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
 }
 
 // We use the latest version from the cask if installation is via homebrew - homebrew does not immediately pick up the latest release and can lag behind.
-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
-const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+// MyCode: upstream release metadata is part of the blocked telemetry surface.
+// The `const if` keeps the URLs out of the shipped binary.
+const HOMEBREW_CASK_API_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://formulae.brew.sh/api/cask/codex.json"
+};
+const LATEST_RELEASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://api.github.com/repos/openai/codex/releases/latest"
+};
 
 #[derive(Deserialize, Debug, Clone)]
 struct ReleaseInfo {

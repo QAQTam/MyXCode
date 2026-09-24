@@ -15,8 +15,13 @@ use std::path::Path;
 #[path = "tooltips/keybinding_tests.rs"]
 mod keybinding_tests;
 
-const ANNOUNCEMENT_TIP_URL: &str =
-    "https://raw.githubusercontent.com/openai/codex/main/announcement_tip.toml";
+// MyCode: the upstream announcement feed is part of the blocked telemetry
+// surface. The `const if` keeps the URL out of the shipped binary.
+const ANNOUNCEMENT_TIP_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://raw.githubusercontent.com/openai/codex/main/announcement_tip.toml"
+};
 
 const IS_MACOS: bool = cfg!(target_os = "macos");
 const IS_WINDOWS: bool = cfg!(target_os = "windows");
@@ -308,6 +313,12 @@ pub(crate) mod announcement {
     }
 
     async fn fetch_announcement_tip_text(http_client_factory: HttpClientFactory) -> Option<String> {
+        // MyCode: never fetch the upstream announcement tip. The constant folds
+        // this branch away, so the fetch never runs in a MyCode build.
+        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+            return None;
+        }
+
         let client = RouteAwareClientPool::new(http_client_factory, ClientRouteClass::Other);
         let response = client
             .get(ANNOUNCEMENT_TIP_URL)

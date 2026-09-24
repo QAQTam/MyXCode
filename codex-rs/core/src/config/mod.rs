@@ -3981,7 +3981,10 @@ impl Config {
 
         let review_model = override_review_model.or(cfg.review_model);
 
-        let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
+        // MyCode: update probes are off by default; see `codex-mycode-policy`.
+        let check_for_update_on_startup = cfg
+            .check_for_update_on_startup
+            .unwrap_or(codex_mycode_policy::CHECK_FOR_UPDATE_ON_STARTUP_BY_DEFAULT);
         let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
 
         let log_dir = cfg
