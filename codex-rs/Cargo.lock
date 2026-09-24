@@ -2511,6 +2511,7 @@ dependencies = [
  "codex-memories-write",
  "codex-model-provider",
  "codex-models-manager",
+ "codex-mycode-policy",
  "codex-plugin",
  "codex-protocol",
  "codex-responses-api-proxy",
@@ -2770,6 +2771,7 @@ dependencies = [
  "codex-file-system",
  "codex-git-utils",
  "codex-model-provider-info",
+ "codex-mycode-policy",
  "codex-network-proxy",
  "codex-protocol",
  "codex-utils-absolute-path",
@@ -2918,6 +2920,7 @@ dependencies = [
  "codex-mycode-chat-adapter",
  "codex-mycode-file-tools",
  "codex-mycode-model-wire",
+ "codex-mycode-policy",
  "codex-network-proxy",
  "codex-otel",
  "codex-plugin",
@@ -3362,6 +3365,7 @@ dependencies = [
  "bytes",
  "codex-http-client",
  "codex-login",
+ "codex-mycode-policy",
  "codex-protocol",
  "codex-rollout",
  "codex-state",
@@ -4100,6 +4104,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-mycode-policy"
+version = "26.157.0"
+
+[[package]]
 name = "codex-network-proxy"
 version = "26.157.0"
 dependencies = [
@@ -4176,6 +4184,7 @@ dependencies = [
  "chrono",
  "codex-api",
  "codex-http-client",
+ "codex-mycode-policy",
  "codex-protocol",
  "codex-utils-absolute-path",
  "codex-utils-stream-parser",
@@ -4785,6 +4794,7 @@ dependencies = [
  "codex-model-provider",
  "codex-model-provider-info",
  "codex-models-manager",
+ "codex-mycode-policy",
  "codex-otel",
  "codex-plugin",
  "codex-protocol",
