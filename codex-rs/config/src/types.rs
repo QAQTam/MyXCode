@@ -653,7 +653,12 @@ impl Default for OtelConfig {
             environment: DEFAULT_OTEL_ENVIRONMENT.to_owned(),
             exporter: OtelExporterKind::None,
             trace_exporter: OtelExporterKind::None,
-            metrics_exporter: OtelExporterKind::Statsig,
+            // MyCode: upstream defaults this to the Statsig ingestion route.
+            metrics_exporter: if codex_mycode_policy::OTEL_METRICS_ENABLED_BY_DEFAULT {
+                OtelExporterKind::Statsig
+            } else {
+                OtelExporterKind::None
+            },
             span_attributes: BTreeMap::new(),
             tracestate: BTreeMap::new(),
         }

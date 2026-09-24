@@ -33,8 +33,18 @@ use super::network;
 const MAX_VERSION_RESPONSE_BYTES: usize = 1024 * 1024;
 
 const VERSION_FILE_NAME: &str = "version.json";
-const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
+// MyCode: upstream release metadata is part of the blocked telemetry surface.
+// The `const if` keeps the URLs out of the shipped binary.
+const GITHUB_LATEST_RELEASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://api.github.com/repos/openai/codex/releases/latest"
+};
+const HOMEBREW_CASK_API_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+    ""
+} else {
+    "https://formulae.brew.sh/api/cask/codex.json"
+};
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 const DESKTOP_UPDATE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml";
 #[cfg(all(target_os = "macos", not(target_arch = "x86_64")))]
@@ -122,6 +132,12 @@ pub(super) async fn append_desktop_update(
     let Some(config) = config else {
         return;
     };
+    // MyCode: never probe the desktop update CDN. The constant folds the rest of
+    // this function away, so the persistent.oaistatic.com URL is absent from
+    // MyCode binaries.
+    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+        return;
+    }
     let Some(reachability_index) = checks
         .iter()
         .position(|check| check.id == "network.provider_reachability")
@@ -403,6 +419,13 @@ async fn fetch_latest_version(
     client: &RouteAwareClientPool,
     context: &InstallContext,
 ) -> Result<String, String> {
+    // MyCode: never probe upstream release metadata. The constant folds this
+    // branch away, so the GitHub and Homebrew URLs are absent from MyCode
+    // binaries.
+    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+        return Err("update probes are disabled in this build".to_string());
+    }
+
     match &context.method {
         InstallMethod::Brew => fetch_homebrew_cask_version(client).await,
         InstallMethod::Npm

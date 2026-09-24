@@ -49,6 +49,13 @@ pub struct FeedbackTransport {
 
 impl FeedbackTransport {
     pub fn new(http_client_factory: HttpClientFactory) -> Result<Self> {
+        // MyCode: the persisted-report transport targets the same built-in
+        // Sentry project. The constant folds this branch away, so `SENTRY_DSN`
+        // never reaches the shipped binary.
+        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+            anyhow::bail!("feedback transport is disabled in this build");
+        }
+
         Ok(Self {
             client_pool: RouteAwareClientPool::new_without_redirects_or_request_logging(
                 http_client_factory,
