@@ -493,6 +493,7 @@ async fn turn_event_counts_completed_tool_items() {
             id: "file-change-1".to_string(),
             changes: Vec::new(),
             status: PatchApplyStatus::Completed,
+            tool_name: None,
         },
         mcp_tool_call_item(McpToolCallStatus::Completed, Some(2)),
         ThreadItem::DynamicToolCall {
