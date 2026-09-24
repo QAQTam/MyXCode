@@ -1,6 +1,6 @@
 # HANDOFF — MyCode 迁移工作
 
-更新时间：2026-09-22
+更新时间：2026-09-25
 
 当前分支：`myXCode-features`
 
@@ -39,7 +39,10 @@ adapter”落地：算法不接触文件系统，core 统一通过 `ExecutorFile
 - 后续按需要把 generic Responses 默认策略推广到更多 provider；
 - 文件工具仍需独立 `ApprovalAction::FileMutation` 和 approval cache key；
 - 上游 130 个提交已完成整体合并探测；当前已同步 79 个补丁，剩余
-  提交按需继续 cherry-pick。
+  提交按需继续 cherry-pick；
+- **商业化/遥测“移除代码”轮**：analytics 事件管道、curated 插件仓库
+  同步、cloud-config 云开关，以及 `analytics.enabled`/`feedback.enabled`
+  默认关闭。详见第 11 节。
 
 ---
 
@@ -54,6 +57,12 @@ myXCode-features
 当前 HEAD 附近的迁移/同步提交：
 
 ```text
+7c5e7b678 feat(mycode): block commercial telemetry at its egress points
+cc3f00bc5 fix(mycode): restore codex-analytics test compilation
+9824b3263 feat(mycode): add fork telemetry policy crate
+8216c959d feat(mycode): enable advanced fork feature defaults
+8b14e886f chore(mycode): bump fork version to 26.155.2-beta
+b139bcb7f docs(mycode): record TUI and multi-agent sync
 0a431f1fb chore(app-server-protocol): refresh stable precomputed exports
 abde2862d Stream agent snapshots from local status subscriptions (#47267)
 fe200bf2f Subscribe authors to message-board channels created by posting (#47259)
@@ -620,6 +629,31 @@ just write-app-server-schema --experimental
 just bazel-lock-update
 ```
 
+2026-09-25 商业化/遥测阻断轮追加（每项都与改动前的 HEAD 基线逐项对比，
+**新增失败为 0**）：
+
+```text
+just fmt
+python3 scripts/mycode-verify-telemetry-blocked.py codex-rs/target/debug/codex
+just test -p codex-mycode-policy -p codex-otel -p codex-feedback \
+  -p codex-analytics -p codex-config -p codex-core-plugins   # 1012 passed
+just test -p codex-core                                      # 383 failed（基线 384，新增 0）
+just test -p codex-tui                                       #  45 failed（基线  45，新增 0）
+just test -p codex-app-server                                # 103 failed（基线 103，新增 0）
+just test -p codex-cli                                       #  18 failed（基线  19，新增 0）
+```
+
+基线复现方式：`git stash push` 后在未改动状态重跑同一 crate，导出
+`target/nextest/local/junit.xml` 的失败集合做差集。上表“基线”列即该次
+结果，全部为 fork 既有失败，与本次改动无关。
+
+二进制扫描实测（debug 构建，是比 release 更难消除的场景）：
+
+```text
+ok: 1 binary/binaries carry no blocked telemetry payloads
+note: 3 deferred payload(s) are still compiled in
+```
+
 注意：
 
 - 机器上同时有其他大型 Rust 构建时，Cargo 会等待 artifact lock；
@@ -628,6 +662,14 @@ just bazel-lock-update
 - 迁移期间不要执行 workspace-wide `cargo test`，除非用户明确要求。
 - `codex-core --lib` 全量在当前机器上仍有多 agent 既有超时；已在 Stage 6 前的
   HEAD 复现，和 wire adapter 改动无关。
+- 2026-09-24 磁盘曾 100% 占满导致构建失败（主因是 `~/项目/qaqh-backend/target`
+  275G）。测试前先 `df -h /home`；本仓库 `codex-rs/target` 约 12G。
+- `codex-core` / `codex-tui` / `codex-app-server` 的既有失败里，有相当一部分是
+  Bazel-only 测试二进制缺失（`could not locate binary "test_stdio_server"`）
+  和超时（nextest `TMT`），不要误判为业务回归。
+- 若在本仓库内跑测试，注意 `.snap.new` 会因 multi-agent prompt 注入产生；
+  这些快照漂移在改动前就存在，确认后可用
+  `find codex-rs -name '*.snap.new' -delete` 清理。
 
 ---
 
@@ -653,6 +695,22 @@ codex-rs/core/src/client.rs
 codex-rs/core/src/client_tests.rs
 ```
 
+商业化/遥测阻断轮新增：
+
+```text
+codex-rs/ext/mycode/policy/src/lib.rs        # 单一策略开关与派生默认值
+codex-rs/otel/src/config.rs                  # Statsig 端点/密钥阻断
+codex-rs/feedback/src/lib.rs                 # 反馈上传阻断
+codex-rs/feedback/src/report_upload.rs       # 反馈持久化传输阻断
+codex-rs/tui/src/updates.rs                  # 更新探测 URL 阻断
+codex-rs/tui/src/tooltips.rs                 # 公告 tip 抓取阻断
+codex-rs/tui/src/pets/asset_pack.rs          # 宠物素材 CDN 阻断
+codex-rs/cli/src/doctor/updates.rs           # doctor 更新/桌面 CDN 探测阻断
+codex-rs/core/src/config/otel.rs             # metrics exporter 默认值
+codex-rs/config/src/types.rs                 # OtelConfig 默认值
+scripts/mycode-verify-telemetry-blocked.py   # 构建产物字符串扫描
+```
+
 ---
 
 ## 10. 交接检查清单
@@ -676,4 +734,90 @@ codex-rs/core/src/client_tests.rs
 - [ ] 文件工具独立 approval action/cache key 尚未实现；
 - [ ] Anthropic Messages 暂缓，尚未实现；
 - [ ] 最终 workspace-wide `just test` 尚未执行；
-- [x] 所有改动继续按小提交拆分，保持 cherry-pick 友好。
+- [x] 所有改动继续按小提交拆分，保持 cherry-pick 友好；
+- [x] 建立 `codex-mycode-policy` 单一策略开关；
+- [x] 阻断 Statsig 指标、Sentry 反馈、更新探测、公告 tip、宠物素材 CDN；
+- [x] 用 `scripts/mycode-verify-telemetry-blocked.py` 验证构建产物；
+- [ ] analytics 事件管道尚未移除（下一轮“移除代码”）；
+- [ ] curated 插件仓库同步尚未移除（下一轮“移除代码”）；
+- [ ] cloud-config 云开关尚未处理（下一轮“移除代码”）；
+- [ ] `analytics.enabled` / `feedback.enabled` 默认值尚未翻转（下一轮）。
+
+---
+
+## 11. 商业化与遥测阻断（2026-09-25）
+
+### 11.1 设计原则
+
+阻断点全部收敛到 fork 自持的 `codex-rs/ext/mycode/policy`：
+
+```rust
+pub const BLOCK_COMMERCIAL_TELEMETRY: bool = true;
+```
+
+调用点用 **`const` 早返回** 或 **`const if`** 取值，由编译器消除死分支。
+选这个方案而不是 `--cfg` / `RUSTFLAGS` 的原因：
+
+- 不需要动构建系统，**Cargo 与 Bazel 两条发布路径同时生效**；
+- 不会覆盖 `codex-rs/.cargo/config.toml` 里 Windows 专用的
+  `-C link-arg=/STACK:8388608` 等 `rustflags`（env 形式的 RUSTFLAGS
+  会整体覆盖它们）；
+- 上游源码原样保留，**cherry-pick 继续可应用**；
+- 本地 `just test` 与上游测试语义不变（除了下面列出的三处测试适配）。
+
+已验证：跨 crate 的 `const bool` 在 **debug 构建**下也会把死分支里的字面量
+消除，因此不依赖 release 优化。
+
+### 11.2 本轮已阻断
+
+| 项 | 位置 | 说明 |
+| --- | --- | --- |
+| Statsig 指标端点 + 硬编码 API key | `otel/src/config.rs` | `ab.chatgpt.com` 与 key 均不进二进制 |
+| `otel.metrics_exporter` 默认值 | `core/src/config/otel.rs`、`config/src/types.rs` | 默认 `None` |
+| Sentry DSN + 反馈上传 | `feedback/src/lib.rs`、`report_upload.rs` | DSN 不进二进制，上传直接拒绝 |
+| 更新探测 URL | `tui/src/updates.rs`、`cli/src/doctor/updates.rs` | GitHub / Homebrew / 桌面 CDN |
+| `check_for_update_on_startup` 默认值 | `core/src/config/mod.rs` | 默认 `false` |
+| 公告 tip 抓取 | `tui/src/tooltips.rs` | 不再抓取，URL 消除 |
+| 宠物素材 CDN | `tui/src/pets/asset_pack.rs` | 不再下载，URL 消除 |
+
+测试适配（共 3 处，均为 fork 行为变化所致）：
+
+- `tui/src/pets/asset_pack.rs`：URL 用例改为断言阻断行为；
+- `app-server/tests/suite/v2/feedback.rs`：改为断言上传被拒绝；
+- `core/src/config/config_tests.rs`：metrics exporter 默认值断言改为 `None`。
+
+### 11.3 下一轮：移除代码（不是再阻断）
+
+按 owner 的排序，下面这些不再叠加阻断层，而是直接删代码，同时把相关
+上游测试一次性改写或删除：
+
+1. **analytics 事件管道** `/codex/analytics-events/events`
+   （`codex-analytics` + `core/src/session/session.rs` 构造点）。
+   实测代价：会让 `codex-core` 新增 28 个、`codex-app-server` 新增 46 个
+   失败，且 app-server 的 config helper 按文件分散、没有单点 opt-in。
+2. **curated 插件仓库同步** `plugins/export/curated` +
+   `github.com/openai/plugins.git`（`core-plugins/src/startup_sync.rs`）。
+   实测代价：`marketplace_upgrade`、`curated_mcp_sync` 等 fixture 测试。
+3. **cloud-config 云开关**（`codex-cloud-config`、`ConfigRequirements`
+   下发的 managed requirements）。注意 `feedback.enabled` 可被云侧强制打开，
+   而 `analytics` 不在 `ConfigRequirements` 里、无法被云侧强制。
+4. **默认值翻转**：`analytics.enabled`、`feedback.enabled` 默认关闭。
+
+### 11.4 验证脚本
+
+```bash
+python3 scripts/mycode-verify-telemetry-blocked.py <binary> [<binary> ...]
+```
+
+- `BLOCKED_PAYLOADS` 命中即退出码 1，应接进发布流程；
+- `DEFERRED_PAYLOADS` 只告警，就是上面 11.3 的待办清单；
+- 建议在 `scripts/build_codex_package.py` 打包后、以及 Bazel
+  `//codex-rs/cli:release_binaries` 之后各跑一次。
+
+### 11.5 提交
+
+```text
+9824b3263 feat(mycode): add fork telemetry policy crate
+cc3f00bc5 fix(mycode): restore codex-analytics test compilation
+7c5e7b678 feat(mycode): block commercial telemetry at its egress points
+```
