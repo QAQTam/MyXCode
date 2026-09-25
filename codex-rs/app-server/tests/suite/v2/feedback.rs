@@ -4,6 +4,10 @@ use anyhow::Result;
 use app_test_support::TestAppServer;
 use codex_app_server_protocol::RequestId;
 use serde_json::json;
+use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::io::BufReader;
+use tokio::net::TcpListener;
 use tokio::time::timeout;
 
 #[tokio::test]
@@ -39,6 +43,12 @@ async fn feedback_upload_is_refused_without_touching_the_network() -> Result<()>
 
 #[tokio::test]
 async fn feedback_upload_includes_sqlite_flush_and_query_failures() -> Result<()> {
+    // MyCode: feedback uploads are disabled, so no Sentry envelope is produced
+    // for the assertions below to inspect.
+    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
+        return Ok(());
+    }
+
     use std::io::Read;
     use std::sync::Arc;
 

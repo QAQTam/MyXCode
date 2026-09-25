@@ -135,6 +135,7 @@ axum = { workspace = true, default-features = false, features = [
 ] }
 base64 = { workspace = true }
 codex-utils-cargo-bin = { workspace = true }
+codex-mycode-policy = { workspace = true }
 core_test_support = { workspace = true }
 flate2 = { workspace = true }
 hmac = { workspace = true }
