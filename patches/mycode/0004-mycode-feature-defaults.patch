@@ -1,0 +1,347 @@
+diff --git a/codex-rs/app-server/src/request_processors/catalog_processor.rs b/codex-rs/app-server/src/request_processors/catalog_processor.rs
+index 01fce38b3..0eb71d6b2 100644
+--- a/codex-rs/app-server/src/request_processors/catalog_processor.rs
++++ b/codex-rs/app-server/src/request_processors/catalog_processor.rs
+@@ -406,7 +406,7 @@ impl CatalogRequestProcessor {
+                     description,
+                     announcement,
+                     enabled: config.features.enabled(spec.id),
+-                    default_enabled: spec.default_enabled,
++                    default_enabled: spec.id.default_enabled(),
+                 }
+             })
+             .collect::<Vec<_>>();
+diff --git a/codex-rs/app-server/tests/suite/v2/experimental_feature_list.rs b/codex-rs/app-server/tests/suite/v2/experimental_feature_list.rs
+index 9399a885b..e5e5a2e13 100644
+--- a/codex-rs/app-server/tests/suite/v2/experimental_feature_list.rs
++++ b/codex-rs/app-server/tests/suite/v2/experimental_feature_list.rs
+@@ -80,7 +80,7 @@ async fn experimental_feature_list_returns_feature_metadata_with_stage() -> Resu
+                 description,
+                 announcement,
+                 enabled: config.features.enabled(spec.id),
+-                default_enabled: spec.default_enabled,
++                default_enabled: spec.id.default_enabled(),
+             }
+         })
+         .collect::<Vec<_>>();
+diff --git a/codex-rs/cli/src/doctor.rs b/codex-rs/cli/src/doctor.rs
+index d7014312c..d5ac530cb 100644
+--- a/codex-rs/cli/src/doctor.rs
++++ b/codex-rs/cli/src/doctor.rs
+@@ -1164,7 +1164,7 @@ fn feature_flag_details(config: &Config, details: &mut Vec<String>) {
+         .collect::<Vec<_>>();
+     let overrides = FEATURES
+         .iter()
+-        .filter(|spec| features.enabled(spec.id) != spec.default_enabled)
++        .filter(|spec| features.enabled(spec.id) != spec.id.default_enabled())
+         .map(|spec| format!("{}={}", spec.key, features.enabled(spec.id)))
+         .collect::<Vec<_>>();
+     details.push(format!("feature flags enabled: {}", enabled_features.len()));
+diff --git a/codex-rs/config/src/config_toml.rs b/codex-rs/config/src/config_toml.rs
+index 3369f4613..592f78029 100644
+--- a/codex-rs/config/src/config_toml.rs
++++ b/codex-rs/config/src/config_toml.rs
+@@ -668,7 +668,7 @@ pub struct ExperimentalRequestUserInput {
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+ #[schemars(deny_unknown_fields)]
+ pub struct UpdatePlanToolConfig {
+-    #[serde(default)]
++    #[serde(default = "default_true")]
+     pub enabled: bool,
+ }
+ 
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index d35fc9440..aa2c30403 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -6420,7 +6420,7 @@
+       "additionalProperties": false,
+       "properties": {
+         "enabled": {
+-          "default": false,
++          "default": true,
+           "type": "boolean"
+         }
+       },
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index 628220a9d..de8afc856 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -611,8 +611,8 @@ async fn load_config_resolves_non_prefixed_mcp_tool_servers() -> std::io::Result
+ async fn load_config_resolves_update_plan_enabled() -> std::io::Result<()> {
+     let codex_home = tempdir()?;
+     for (config_toml, expected_enabled) in [
+-        ("", false),
+-        ("[tools.update_plan]", false),
++        ("", true),
++        ("[tools.update_plan]", true),
+         ("[tools.update_plan]\nenabled = false", false),
+         ("[tools.update_plan]\nenabled = true", true),
+     ] {
+diff --git a/codex-rs/core/src/config/edit.rs b/codex-rs/core/src/config/edit.rs
+index 9996db9ab..fbb5f8b85 100644
+--- a/codex-rs/core/src/config/edit.rs
++++ b/codex-rs/core/src/config/edit.rs
+@@ -877,7 +877,7 @@ impl ConfigEditsBuilder {
+         let is_default_false_feature = FEATURES
+             .iter()
+             .find(|spec| spec.key == key)
+-            .is_some_and(|spec| !spec.default_enabled);
++            .is_some_and(|spec| !spec.id.default_enabled());
+         if enabled || !is_default_false_feature {
+             self.edits.push(ConfigEdit::SetPath {
+                 segments,
+diff --git a/codex-rs/core/src/config/metrics.rs b/codex-rs/core/src/config/metrics.rs
+index aaae887cb..78c8abfaa 100644
+--- a/codex-rs/core/src/config/metrics.rs
++++ b/codex-rs/core/src/config/metrics.rs
+@@ -10,7 +10,9 @@ pub(crate) fn emit_session_start_metrics(config: &Config, telemetry: &SessionTel
+         if matches!(feature.stage, Stage::Removed) {
+             continue;
+         }
+-        if config.features.enabled(feature.id) != feature.default_enabled {
++        // Compare against the fork's built-in defaults, not the upstream spec
++        // value, so promoted fork defaults are not reported as overrides.
++        if config.features.enabled(feature.id) != feature.id.default_enabled() {
+             telemetry.counter(
+                 "codex.feature.state",
+                 /*inc*/ 1,
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index c0e11ba69..8e3a49ba9 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -2703,7 +2703,7 @@ fn resolve_update_plan_enabled(config_toml: &ConfigToml) -> bool {
+         .tools
+         .as_ref()
+         .and_then(|tools| tools.update_plan.as_ref())
+-        .is_some_and(|config| config.enabled)
++        .is_none_or(|config| config.enabled)
+ }
+ 
+ fn resolve_feature_enabled(feature: Option<&codex_config::config_toml::FeatureToggleToml>) -> bool {
+diff --git a/codex-rs/features/src/lib.rs b/codex-rs/features/src/lib.rs
+index 171e6dc2e..eaf9c8455 100644
+--- a/codex-rs/features/src/lib.rs
++++ b/codex-rs/features/src/lib.rs
+@@ -432,6 +432,19 @@ pub enum Feature {
+     ResponsesWebsocketsV2,
+ }
+ 
++/// Features promoted to fork defaults while upstream keeps them opt-in.
++///
++/// Add future fork defaults here instead of changing each feature check or
++/// requiring users to duplicate the same settings in `config.toml`.
++const FORK_DEFAULT_FEATURES: &[Feature] = &[
++    Feature::CodeMode,
++    Feature::ApplyPatchStreamingEvents,
++    Feature::DefaultModeRequestUserInput,
++    Feature::MultiAgentV2,
++    Feature::AgentMessageBoard,
++    Feature::SendMessageToUserAsync,
++];
++
+ impl Feature {
+     pub fn key(self) -> &'static str {
+         self.info().key
+@@ -441,8 +454,9 @@ impl Feature {
+         self.info().stage
+     }
+ 
++    /// Whether this feature is enabled by the fork's built-in defaults.
+     pub fn default_enabled(self) -> bool {
+-        self.info().default_enabled
++        self.info().default_enabled || FORK_DEFAULT_FEATURES.contains(&self)
+     }
+ 
+     fn info(self) -> &'static FeatureSpec {
+@@ -497,7 +511,7 @@ impl Features {
+     pub fn with_defaults() -> Self {
+         let mut set = BTreeSet::new();
+         for spec in FEATURES {
+-            if spec.default_enabled {
++            if spec.id.default_enabled() {
+                 set.insert(spec.id);
+             }
+         }
+diff --git a/codex-rs/features/src/tests.rs b/codex-rs/features/src/tests.rs
+index e11d77744..a6ae756e7 100644
+--- a/codex-rs/features/src/tests.rs
++++ b/codex-rs/features/src/tests.rs
+@@ -122,6 +122,25 @@ fn default_enabled_features_are_stable() {
+     }
+ }
+ 
++#[test]
++fn fork_default_features_are_enabled_and_can_be_disabled() {
++    for &feature in crate::FORK_DEFAULT_FEATURES {
++        assert!(Features::with_defaults().enabled(feature));
++
++        let overrides = FeaturesToml::from(BTreeMap::from([(feature.key().to_string(), false)]));
++        let features = Features::from_sources(
++            FeatureConfigSource {
++                features: Some(&overrides),
++                ..Default::default()
++            },
++            FeatureConfigSource::default(),
++            FeatureOverrides::default(),
++        );
++
++        assert!(!features.enabled(feature), "failed to disable {feature:?}");
++    }
++}
++
+ #[test]
+ fn removed_apps_mcp_path_override_shapes_are_ignored() {
+     let features = [
+diff --git a/codex-rs/tui/src/app/agents_overview_actions_tests.rs b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+index 9f711dd31..ec7d0e286 100644
+--- a/codex-rs/tui/src/app/agents_overview_actions_tests.rs
++++ b/codex-rs/tui/src/app/agents_overview_actions_tests.rs
+@@ -410,6 +410,11 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
+         };
+         let (mut app, mut rx, _op_rx) =
+             Box::pin(crate::app::tests::make_test_app_with_channels()).await;
++        // This lifecycle test exercises direct resume of spawned children, which is V1-only.
++        app.config
++            .features
++            .disable(codex_features::Feature::MultiAgentV2)
++            .expect("test setup should allow disabling multi-agent v2");
+         let (release, gate) = tokio::sync::oneshot::channel();
+         let (server, _completions) = start_streaming_sse_server(vec![vec![
+             StreamingSseChunk {
+@@ -422,7 +427,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
+             },
+         ]])
+         .await;
+-        app.config.model = Some("gpt-5.2".into());
++        app.config.model = Some("gpt-5.6-luna".into());
+         app.config.model_provider_id = "lifecycle-test".into();
+         app.config.model_provider = ModelProviderInfo {
+             name: "Lifecycle test".into(),
+@@ -432,9 +437,10 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
+             ..ModelProviderInfo::default()
+         };
+         app_test_support::MockResponsesConfig::new(server.uri())
+-            .with_model("gpt-5.2")
++            .with_model("gpt-5.6-luna")
+             .with_model_provider("lifecycle-test")
+             .with_provider_name("Lifecycle test")
++            .disable_feature(codex_features::Feature::MultiAgentV2)
+             .write(app.config.codex_home.as_path())?;
+         let mut app_server =
+             Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+@@ -503,7 +509,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
+             &app.local_settings,
+             app.config.clone(),
+             primary,
+-            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
++            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+         ))
+         .await?;
+         app.enqueue_primary_thread_session(resumed.session, resumed.turns)
+@@ -565,7 +571,7 @@ async fn lifecycle_removes_background_and_current_tasks_without_losing_the_dashb
+                 &app.local_settings,
+                 app.config.clone(),
+                 primary,
+-                crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
++                crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+             ))
+             .await?;
+             app.enqueue_primary_thread_session(resumed.session, resumed.turns)
+diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
+index 6fe3d8f02..abf404b66 100644
+--- a/codex-rs/tui/src/app/tests.rs
++++ b/codex-rs/tui/src/app/tests.rs
+@@ -2478,6 +2478,21 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
+     // Keep the scenario and its large setup/resume futures off the test thread's stack.
+     runtime.block_on(Box::pin(async {
+         let (mut app, mut app_event_rx, _op_rx) = Box::pin(make_test_app_with_channels()).await;
++        // Persisted thread metadata determines each child's capability in this test.
++        app.config
++            .features
++            .disable(codex_features::Feature::MultiAgentV2)
++            .expect("test setup should allow disabling multi-agent v2");
++        app.config.model = Some("gpt-5.6-luna".to_string());
++        std::fs::write(
++            app.config.codex_home.join("config.toml"),
++            r#"
++model = "gpt-5.6-luna"
++
++[features]
++multi_agent_v2 = false
++"#,
++        )?;
+         let root_thread_id = ThreadId::new();
+         let rollout_dir = app
+             .config
+@@ -2557,7 +2572,7 @@ fn selected_and_resumed_threads_use_server_capability_for_v1_and_v2_children() -
+             &app.local_settings,
+             app.config.clone(),
+             root_thread_id,
+-            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
++            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+         ))
+         .await?;
+         app.enqueue_primary_thread_session(root.session, root.turns)
+diff --git a/codex-rs/tui/src/bottom_pane/experimental_features_view.rs b/codex-rs/tui/src/bottom_pane/experimental_features_view.rs
+index 63a5bd85e..9499f54b3 100644
+--- a/codex-rs/tui/src/bottom_pane/experimental_features_view.rs
++++ b/codex-rs/tui/src/bottom_pane/experimental_features_view.rs
+@@ -340,7 +340,7 @@ impl BottomPaneView for ExperimentalFeaturesView {
+                         ) || FEATURES.iter().any(|spec| {
+                             spec.key == feature.name
+                                 && spec.stage.experimental_menu_name().is_some()
+-                                && spec.default_enabled == feature.default_enabled
++                                && spec.id.default_enabled() == feature.default_enabled
+                         }),
+                         key: feature.name.clone(),
+                         name: feature.display_name.unwrap_or(feature.name),
+diff --git a/codex-rs/tui/src/config_update.rs b/codex-rs/tui/src/config_update.rs
+index 7a50e6dd0..dd8f081bb 100644
+--- a/codex-rs/tui/src/config_update.rs
++++ b/codex-rs/tui/src/config_update.rs
+@@ -126,7 +126,7 @@ pub(crate) fn build_feature_enabled_edit(feature_key: &str, enabled: bool) -> Co
+     let is_default_false_feature = FEATURES
+         .iter()
+         .find(|spec| spec.key == feature_key)
+-        .is_some_and(|spec| !spec.default_enabled);
++        .is_some_and(|spec| !spec.id.default_enabled());
+     if enabled || !is_default_false_feature {
+         replace_config_value(key_path, serde_json::json!(enabled))
+     } else {
+diff --git a/codex-rs/tui/src/temporary_structured_request.rs b/codex-rs/tui/src/temporary_structured_request.rs
+index 574ab35ef..dd11a7281 100644
+--- a/codex-rs/tui/src/temporary_structured_request.rs
++++ b/codex-rs/tui/src/temporary_structured_request.rs
+@@ -63,11 +63,20 @@ pub(crate) async fn start_temporary_thread(
+     let custom_permission_profile =
+         active_permission_profile.filter(|profile| !profile.starts_with(':'));
+     let mut config = std::collections::HashMap::from([
++        ("features.agent_message_board".to_string(), false.into()),
+         ("features.apps".to_string(), false.into()),
++        (
++            "features.apply_patch_streaming_events".to_string(),
++            false.into(),
++        ),
+         ("features.code_mode".to_string(), false.into()),
+         ("features.code_mode_only".to_string(), false.into()),
+         ("features.context_management".to_string(), false.into()),
+         ("features.current_time_reminder".to_string(), false.into()),
++        (
++            "features.default_mode_request_user_input".to_string(),
++            false.into(),
++        ),
+         ("features.deferred_executor".to_string(), false.into()),
+         ("features.enable_fanout".to_string(), false.into()),
+         ("features.goals".to_string(), false.into()),
+@@ -81,6 +90,10 @@ pub(crate) async fn start_temporary_thread(
+             "features.request_permissions_tool".to_string(),
+             false.into(),
+         ),
++        (
++            "features.send_message_to_user_async".to_string(),
++            false.into(),
++        ),
+         ("features.shell_snapshot".to_string(), false.into()),
+         ("features.shell_tool".to_string(), false.into()),
+         ("features.standalone_web_search".to_string(), false.into()),
