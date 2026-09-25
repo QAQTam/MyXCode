@@ -1,0 +1,614 @@
+diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
+index a4cc615f2..fd22304a2 100644
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -2092,6 +2092,7 @@ dependencies = [
+  "codex-model-provider",
+  "codex-model-provider-info",
+  "codex-models-manager",
++ "codex-mycode-policy",
+  "codex-network-proxy",
+  "codex-otel",
+  "codex-plugin",
+@@ -2511,6 +2512,7 @@ dependencies = [
+  "codex-memories-write",
+  "codex-model-provider",
+  "codex-models-manager",
++ "codex-mycode-policy",
+  "codex-plugin",
+  "codex-protocol",
+  "codex-responses-api-proxy",
+@@ -2770,6 +2772,7 @@ dependencies = [
+  "codex-file-system",
+  "codex-git-utils",
+  "codex-model-provider-info",
++ "codex-mycode-policy",
+  "codex-network-proxy",
+  "codex-protocol",
+  "codex-utils-absolute-path",
+@@ -2918,6 +2921,7 @@ dependencies = [
+  "codex-mycode-chat-adapter",
+  "codex-mycode-file-tools",
+  "codex-mycode-model-wire",
++ "codex-mycode-policy",
+  "codex-network-proxy",
+  "codex-otel",
+  "codex-plugin",
+@@ -3362,6 +3366,7 @@ dependencies = [
+  "bytes",
+  "codex-http-client",
+  "codex-login",
++ "codex-mycode-policy",
+  "codex-protocol",
+  "codex-rollout",
+  "codex-state",
+@@ -4099,6 +4104,10 @@ dependencies = [
+  "thiserror 2.0.18",
+ ]
+ 
++[[package]]
++name = "codex-mycode-policy"
++version = "26.157.0"
++
+ [[package]]
+ name = "codex-network-proxy"
+ version = "26.157.0"
+@@ -4176,6 +4185,7 @@ dependencies = [
+  "chrono",
+  "codex-api",
+  "codex-http-client",
++ "codex-mycode-policy",
+  "codex-protocol",
+  "codex-utils-absolute-path",
+  "codex-utils-stream-parser",
+@@ -4785,6 +4795,7 @@ dependencies = [
+  "codex-model-provider",
+  "codex-model-provider-info",
+  "codex-models-manager",
++ "codex-mycode-policy",
+  "codex-otel",
+  "codex-plugin",
+  "codex-protocol",
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 4e3407594..4ebdfce88 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -74,6 +74,7 @@ members = [
+     "ext/mycode/chat-adapter",
+     "ext/mycode/file-tools",
+     "ext/mycode/model-wire",
++    "ext/mycode/policy",
+     "ext/queue",
+     "ext/skills",
+     "ext/web-search",
+@@ -255,6 +256,7 @@ codex-mcp-extension = { path = "ext/mcp" }
+ codex-mycode-chat-adapter = { path = "ext/mycode/chat-adapter" }
+ codex-mycode-file-tools = { path = "ext/mycode/file-tools" }
+ codex-mycode-model-wire = { path = "ext/mycode/model-wire" }
++codex-mycode-policy = { path = "ext/mycode/policy" }
+ codex-model-provider-info = { path = "model-provider-info" }
+ codex-models-manager = { path = "models-manager" }
+ codex-mxc-sandbox = { path = "mxc-sandbox" }
+diff --git a/codex-rs/analytics/src/tests/suite/turns/events_tests.rs b/codex-rs/analytics/src/tests/suite/turns/events_tests.rs
+index 1c75ef98d..94a0c7929 100644
+--- a/codex-rs/analytics/src/tests/suite/turns/events_tests.rs
++++ b/codex-rs/analytics/src/tests/suite/turns/events_tests.rs
+@@ -493,6 +493,7 @@ async fn turn_event_counts_completed_tool_items() {
+             id: "file-change-1".to_string(),
+             changes: Vec::new(),
+             status: PatchApplyStatus::Completed,
++            tool_name: None,
+         },
+         mcp_tool_call_item(McpToolCallStatus::Completed, Some(2)),
+         ThreadItem::DynamicToolCall {
+diff --git a/codex-rs/app-server/Cargo.toml b/codex-rs/app-server/Cargo.toml
+index ad0a5fbab..9ee5c2442 100644
+--- a/codex-rs/app-server/Cargo.toml
++++ b/codex-rs/app-server/Cargo.toml
+@@ -135,6 +135,7 @@ axum = { workspace = true, default-features = false, features = [
+ ] }
+ base64 = { workspace = true }
+ codex-utils-cargo-bin = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ core_test_support = { workspace = true }
+ flate2 = { workspace = true }
+ hmac = { workspace = true }
+diff --git a/codex-rs/app-server/tests/suite/v2/feedback.rs b/codex-rs/app-server/tests/suite/v2/feedback.rs
+index fbe609df3..9e34c3c1a 100644
+--- a/codex-rs/app-server/tests/suite/v2/feedback.rs
++++ b/codex-rs/app-server/tests/suite/v2/feedback.rs
+@@ -3,7 +3,6 @@ use std::time::Duration;
+ use anyhow::Result;
+ use app_test_support::TestAppServer;
+ use codex_app_server_protocol::RequestId;
+-use pretty_assertions::assert_eq;
+ use serde_json::json;
+ use tokio::io::AsyncBufReadExt;
+ use tokio::io::AsyncWriteExt;
+@@ -12,66 +11,11 @@ use tokio::net::TcpListener;
+ use tokio::time::timeout;
+ 
+ #[tokio::test]
+-async fn feedback_upload_limits_concurrency_and_releases_failed_uploads() -> Result<()> {
+-    let proxy = TcpListener::bind("127.0.0.1:0").await?;
+-    let proxy_uri = format!("http://{}", proxy.local_addr()?);
+-    let mut app_server = TestAppServer::builder()
+-        .with_env_overrides(&[
+-            ("HTTPS_PROXY", Some(proxy_uri.as_str())),
+-            ("https_proxy", Some(proxy_uri.as_str())),
+-            ("NO_PROXY", Some("")),
+-            ("no_proxy", Some("")),
+-        ])
+-        .build_initialized()
+-        .await?;
+-
+-    let mut pending = Vec::new();
+-    for _ in 0..3 {
+-        let request_id = app_server
+-            .send_raw_request(
+-                "feedback/upload",
+-                Some(json!({ "classification": "bug", "includeLogs": false })),
+-            )
+-            .await?;
+-        let (stream, _) = timeout(Duration::from_secs(/*secs*/ 15), proxy.accept()).await??;
+-        let mut stream = BufReader::new(stream);
+-        let mut request = String::new();
+-        timeout(
+-            Duration::from_secs(/*secs*/ 15),
+-            stream.read_line(&mut request),
+-        )
+-        .await??;
+-        assert!(request.starts_with("CONNECT "));
+-        pending.push((request_id, stream.into_inner()));
+-    }
+-
+-    let excess_id = app_server
+-        .send_raw_request(
+-            "feedback/upload",
+-            Some(json!({ "classification": "bug", "includeLogs": false })),
+-        )
+-        .await?;
+-    let error = timeout(
+-        Duration::from_secs(/*secs*/ 15),
+-        app_server.read_stream_until_error_message(RequestId::Integer(excess_id)),
+-    )
+-    .await??;
+-
+-    assert_eq!(error.error.code, -32001);
+-
+-    let unavailable =
+-        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+-    for (request_id, mut stream) in pending {
+-        stream.write_all(unavailable).await?;
+-        stream.shutdown().await?;
+-        let error = timeout(
+-            Duration::from_secs(/*secs*/ 15),
+-            app_server.read_stream_until_error_message(RequestId::Integer(request_id)),
+-        )
+-        .await??;
+-        assert_eq!(error.error.code, -32603);
+-        assert!(error.error.message.contains("failed to upload feedback"));
+-    }
++async fn feedback_upload_is_refused_without_touching_the_network() -> Result<()> {
++    // MyCode: feedback uploads to the built-in Sentry project are disabled, so the
++    // request fails before any network work starts. Upstream covered the upload
++    // concurrency limit here; that path no longer exists in this build.
++    let mut app_server = TestAppServer::builder().build_initialized().await?;
+ 
+     let request_id = app_server
+         .send_raw_request(
+@@ -79,20 +23,32 @@ async fn feedback_upload_limits_concurrency_and_releases_failed_uploads() -> Res
+             Some(json!({ "classification": "bug", "includeLogs": false })),
+         )
+         .await?;
+-    let (mut stream, _) = timeout(Duration::from_secs(/*secs*/ 15), proxy.accept()).await??;
+-    stream.write_all(unavailable).await?;
+-    stream.shutdown().await?;
+     let error = timeout(
+         Duration::from_secs(/*secs*/ 15),
+         app_server.read_stream_until_error_message(RequestId::Integer(request_id)),
+     )
+     .await??;
++
+     assert_eq!(error.error.code, -32603);
++    assert!(
++        error
++            .error
++            .message
++            .contains("feedback upload is disabled in this build"),
++        "unexpected error: {}",
++        error.error.message
++    );
+     Ok(())
+ }
+ 
+ #[tokio::test]
+ async fn feedback_upload_includes_sqlite_flush_and_query_failures() -> Result<()> {
++    // MyCode: feedback uploads are disabled, so no Sentry envelope is produced
++    // for the assertions below to inspect.
++    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++        return Ok(());
++    }
++
+     use std::io::Read;
+     use std::sync::Arc;
+ 
+diff --git a/codex-rs/cli/Cargo.toml b/codex-rs/cli/Cargo.toml
+index 4fed7668d..4fed9dc66 100644
+--- a/codex-rs/cli/Cargo.toml
++++ b/codex-rs/cli/Cargo.toml
+@@ -58,6 +58,7 @@ codex-memories-write = { workspace = true }
+ codex-mcp = { workspace = true }
+ codex-model-provider = { workspace = true }
+ codex-models-manager = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-plugin = { workspace = true }
+ codex-protocol = { workspace = true }
+ codex-responses-api-proxy = { workspace = true }
+diff --git a/codex-rs/cli/src/doctor/updates.rs b/codex-rs/cli/src/doctor/updates.rs
+index fbad7d91c..3a5472cac 100644
+--- a/codex-rs/cli/src/doctor/updates.rs
++++ b/codex-rs/cli/src/doctor/updates.rs
+@@ -33,8 +33,18 @@ use super::network;
+ const MAX_VERSION_RESPONSE_BYTES: usize = 1024 * 1024;
+ 
+ const VERSION_FILE_NAME: &str = "version.json";
+-const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
++// MyCode: upstream release metadata is part of the blocked telemetry surface.
++// The `const if` keeps the URLs out of the shipped binary.
++const GITHUB_LATEST_RELEASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://api.github.com/repos/openai/codex/releases/latest"
++};
++const HOMEBREW_CASK_API_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://formulae.brew.sh/api/cask/codex.json"
++};
+ #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+ const DESKTOP_UPDATE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml";
+ #[cfg(all(target_os = "macos", not(target_arch = "x86_64")))]
+@@ -122,6 +132,12 @@ pub(super) async fn append_desktop_update(
+     let Some(config) = config else {
+         return;
+     };
++    // MyCode: never probe the desktop update CDN. The constant folds the rest of
++    // this function away, so the persistent.oaistatic.com URL is absent from
++    // MyCode binaries.
++    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++        return;
++    }
+     let Some(reachability_index) = checks
+         .iter()
+         .position(|check| check.id == "network.provider_reachability")
+@@ -403,6 +419,13 @@ async fn fetch_latest_version(
+     client: &RouteAwareClientPool,
+     context: &InstallContext,
+ ) -> Result<String, String> {
++    // MyCode: never probe upstream release metadata. The constant folds this
++    // branch away, so the GitHub and Homebrew URLs are absent from MyCode
++    // binaries.
++    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++        return Err("update probes are disabled in this build".to_string());
++    }
++
+     match &context.method {
+         InstallMethod::Brew => fetch_homebrew_cask_version(client).await,
+         InstallMethod::Npm
+diff --git a/codex-rs/config/Cargo.toml b/codex-rs/config/Cargo.toml
+index 9be1fb4f4..02301e1f5 100644
+--- a/codex-rs/config/Cargo.toml
++++ b/codex-rs/config/Cargo.toml
+@@ -19,6 +19,7 @@ codex-features = { workspace = true }
+ codex-file-system = { workspace = true }
+ codex-git-utils = { workspace = true }
+ codex-model-provider-info = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-network-proxy = { workspace = true }
+ codex-protocol = { workspace = true }
+ codex-utils-absolute-path = { workspace = true }
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index 8a8a17148..7c8991496 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -653,7 +653,12 @@ impl Default for OtelConfig {
+             environment: DEFAULT_OTEL_ENVIRONMENT.to_owned(),
+             exporter: OtelExporterKind::None,
+             trace_exporter: OtelExporterKind::None,
+-            metrics_exporter: OtelExporterKind::Statsig,
++            // MyCode: upstream defaults this to the Statsig ingestion route.
++            metrics_exporter: if codex_mycode_policy::OTEL_METRICS_ENABLED_BY_DEFAULT {
++                OtelExporterKind::Statsig
++            } else {
++                OtelExporterKind::None
++            },
+             span_attributes: BTreeMap::new(),
+             tracestate: BTreeMap::new(),
+         }
+diff --git a/codex-rs/core/Cargo.toml b/codex-rs/core/Cargo.toml
+index f24b9e938..1d97680f5 100644
+--- a/codex-rs/core/Cargo.toml
++++ b/codex-rs/core/Cargo.toml
+@@ -44,6 +44,7 @@ codex-memories-read = { workspace = true }
+ codex-mcp = { workspace = true }
+ codex-mycode-chat-adapter = { workspace = true }
+ codex-mycode-file-tools = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-mycode-model-wire = { workspace = true }
+ codex-model-provider-info = { workspace = true }
+ codex-models-manager = { workspace = true }
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index 3e7f1f4a8..628220a9d 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -9928,7 +9928,7 @@ async fn legacy_profile_selection_is_rejected() -> std::io::Result<()> {
+ }
+ 
+ #[tokio::test]
+-async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<()> {
++async fn metrics_exporter_defaults_to_none_when_missing() -> std::io::Result<()> {
+     let fixture = create_test_fixture()?;
+ 
+     let config = Config::load_from_base_config_with_overrides(
+@@ -9941,7 +9941,8 @@ async fn metrics_exporter_defaults_to_statsig_when_missing() -> std::io::Result<
+     )
+     .await?;
+ 
+-    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::Statsig);
++    // MyCode defaults the built-in metrics exporter off instead of Statsig.
++    assert_eq!(config.otel.metrics_exporter, OtelExporterKind::None);
+     assert!(!config.otel.agent_response_logging_enabled());
+     assert!(!config.otel.guardian_assessment_logging_enabled());
+     Ok(())
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index df6b1258d..c0e11ba69 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -4049,7 +4049,10 @@ impl Config {
+ 
+         let review_model = override_review_model.or(cfg.review_model);
+ 
+-        let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
++        // MyCode: update probes are off by default; see `codex-mycode-policy`.
++        let check_for_update_on_startup = cfg
++            .check_for_update_on_startup
++            .unwrap_or(codex_mycode_policy::CHECK_FOR_UPDATE_ON_STARTUP_BY_DEFAULT);
+         let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
+ 
+         let log_dir = cfg
+diff --git a/codex-rs/core/src/config/otel.rs b/codex-rs/core/src/config/otel.rs
+index 1d0636e99..553a9e56c 100644
+--- a/codex-rs/core/src/config/otel.rs
++++ b/codex-rs/core/src/config/otel.rs
+@@ -18,7 +18,15 @@ pub(crate) fn resolve_config(
+     // OTLP HTTP endpoints are signal-specific in our config, so enabling log
+     // export must not implicitly send spans to a /v1/logs endpoint.
+     let trace_exporter = config.trace_exporter.unwrap_or(OtelExporterKind::None);
+-    let metrics_exporter = config.metrics_exporter.unwrap_or(OtelExporterKind::Statsig);
++    // MyCode: upstream defaults metrics to the Statsig ingestion route. Keep the
++    // built-in route off unless the user configures an exporter explicitly.
++    let metrics_exporter = config.metrics_exporter.unwrap_or(
++        if codex_mycode_policy::OTEL_METRICS_ENABLED_BY_DEFAULT {
++            OtelExporterKind::Statsig
++        } else {
++            OtelExporterKind::None
++        },
++    );
+     // Provider initialization installs process-global OTEL state. Sanitize
+     // user-editable trace metadata here so malformed config is reported as a
+     // startup warning instead of making startup fail.
+diff --git a/codex-rs/feedback/Cargo.toml b/codex-rs/feedback/Cargo.toml
+index 2fab1dd90..6943965d1 100644
+--- a/codex-rs/feedback/Cargo.toml
++++ b/codex-rs/feedback/Cargo.toml
+@@ -12,6 +12,7 @@ anyhow = { workspace = true }
+ bytes = { workspace = true }
+ codex-http-client = { workspace = true }
+ codex-login = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-protocol = { workspace = true }
+ codex-rollout = { workspace = true }
+ codex-state = { workspace = true }
+diff --git a/codex-rs/feedback/src/lib.rs b/codex-rs/feedback/src/lib.rs
+index 5f6519368..0cb84d613 100644
+--- a/codex-rs/feedback/src/lib.rs
++++ b/codex-rs/feedback/src/lib.rs
+@@ -595,6 +595,13 @@ impl FeedbackSnapshot {
+         options: FeedbackUploadOptions<'_>,
+         http_client_factory: &HttpClientFactory,
+     ) -> Result<()> {
++        // MyCode: never upload feedback to the built-in Sentry project. The
++        // constant folds this branch away, so `SENTRY_DSN` never reaches the
++        // shipped binary.
++        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++            anyhow::bail!("feedback upload is disabled in this build");
++        }
++
+         self.upload_feedback_with_dsn(
+             options,
+             http_client_factory,
+diff --git a/codex-rs/feedback/src/report_upload.rs b/codex-rs/feedback/src/report_upload.rs
+index 56f9ee54a..ee3c4fe71 100644
+--- a/codex-rs/feedback/src/report_upload.rs
++++ b/codex-rs/feedback/src/report_upload.rs
+@@ -49,6 +49,13 @@ pub struct FeedbackTransport {
+ 
+ impl FeedbackTransport {
+     pub fn new(http_client_factory: HttpClientFactory) -> Result<Self> {
++        // MyCode: the persisted-report transport targets the same built-in
++        // Sentry project. The constant folds this branch away, so `SENTRY_DSN`
++        // never reaches the shipped binary.
++        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++            anyhow::bail!("feedback transport is disabled in this build");
++        }
++
+         Ok(Self {
+             client_pool: RouteAwareClientPool::new_without_redirects_or_request_logging(
+                 http_client_factory,
+diff --git a/codex-rs/otel/Cargo.toml b/codex-rs/otel/Cargo.toml
+index 3197eaa84..53160978a 100644
+--- a/codex-rs/otel/Cargo.toml
++++ b/codex-rs/otel/Cargo.toml
+@@ -21,6 +21,7 @@ codex-utils-absolute-path = { workspace = true }
+ codex-utils-stream-parser = { workspace = true }
+ codex-utils-string = { workspace = true }
+ codex-api = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-protocol = { workspace = true }
+ eventsource-stream = { workspace = true }
+ gethostname = { workspace = true }
+diff --git a/codex-rs/otel/src/config.rs b/codex-rs/otel/src/config.rs
+index 69ad3b62d..1a00fca5e 100644
+--- a/codex-rs/otel/src/config.rs
++++ b/codex-rs/otel/src/config.rs
+@@ -13,6 +13,13 @@ pub(crate) const STATSIG_API_KEY: &str = "client-MkRuleRQBd6qakfnDYqJVR9JuXcY57L
+ pub(crate) fn resolve_exporter(exporter: &OtelExporter) -> OtelExporter {
+     match exporter {
+         OtelExporter::Statsig => {
++            // MyCode: never resolve the built-in Statsig ingestion route. The
++            // constant folds this branch away, so the endpoint and the
++            // hard-coded Statsig API key below are absent from MyCode binaries.
++            if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++                return OtelExporter::None;
++            }
++
+             // Keep the built-in Statsig default off in debug builds so
+             // incremental local development and test runs do not emit
+             // best-effort OTEL traffic unless a test or binary opts into an
+diff --git a/codex-rs/tui/Cargo.toml b/codex-rs/tui/Cargo.toml
+index 9d61157c4..8abe31644 100644
+--- a/codex-rs/tui/Cargo.toml
++++ b/codex-rs/tui/Cargo.toml
+@@ -53,6 +53,7 @@ codex-message-history = { workspace = true }
+ codex-model-provider = { workspace = true }
+ codex-model-provider-info = { workspace = true }
+ codex-models-manager = { workspace = true }
++codex-mycode-policy = { workspace = true }
+ codex-otel = { workspace = true }
+ codex-plugin = { workspace = true }
+ codex-protocol = { workspace = true }
+diff --git a/codex-rs/tui/src/pets/asset_pack.rs b/codex-rs/tui/src/pets/asset_pack.rs
+index 1b969cebe..ee35d6a79 100644
+--- a/codex-rs/tui/src/pets/asset_pack.rs
++++ b/codex-rs/tui/src/pets/asset_pack.rs
+@@ -26,7 +26,13 @@ use super::catalog;
+ 
+ const PET_PACK_VERSION: &str = "v1";
+ const PET_PACK_DIR: &str = "cache/tui-pets";
+-const PET_CDN_BASE_URL: &str = "https://persistent.oaistatic.com/codex/pets/v1";
++// MyCode: the built-in pet CDN is part of the blocked commercial surface. The
++// `const if` keeps the URL out of the shipped binary.
++const PET_CDN_BASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://persistent.oaistatic.com/codex/pets/v1"
++};
+ const PET_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+ const PET_MAX_DOWNLOAD_BYTES: u64 = 4 * 1024 * 1024;
+ 
+@@ -97,6 +103,11 @@ pub(crate) async fn ensure_builtin_pet(
+ }
+ 
+ fn builtin_pet_url(pet: catalog::BuiltinPet) -> Result<String> {
++    // MyCode: never download built-in pet assets from the upstream CDN.
++    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++        bail!("built-in pet assets are disabled in this build");
++    }
++
+     let url = format!("{PET_CDN_BASE_URL}/{}", pet.spritesheet_file);
+     validate_download_url(&url)?;
+     Ok(url)
+@@ -194,15 +205,13 @@ mod tests {
+     use pretty_assertions::assert_eq;
+ 
+     #[test]
+-    fn builtin_pet_url_uses_public_cdn_path() {
++    fn builtin_pet_url_is_disabled_for_mycode_builds() {
+         let pet = catalog::builtin_pet("dewey").unwrap();
+ 
+-        let url = builtin_pet_url(pet).unwrap();
++        // MyCode blocks the upstream pet CDN, so the URL builder refuses to run.
++        let error = builtin_pet_url(pet).unwrap_err().to_string();
+ 
+-        assert_eq!(
+-            url,
+-            "https://persistent.oaistatic.com/codex/pets/v1/dewey-spritesheet-v4.webp"
+-        );
++        assert_eq!(error, "built-in pet assets are disabled in this build");
+     }
+ 
+     #[test]
+diff --git a/codex-rs/tui/src/tooltips.rs b/codex-rs/tui/src/tooltips.rs
+index 7dff71609..660d06727 100644
+--- a/codex-rs/tui/src/tooltips.rs
++++ b/codex-rs/tui/src/tooltips.rs
+@@ -15,8 +15,13 @@ use std::path::Path;
+ #[path = "tooltips/keybinding_tests.rs"]
+ mod keybinding_tests;
+ 
+-const ANNOUNCEMENT_TIP_URL: &str =
+-    "https://raw.githubusercontent.com/openai/codex/main/announcement_tip.toml";
++// MyCode: the upstream announcement feed is part of the blocked telemetry
++// surface. The `const if` keeps the URL out of the shipped binary.
++const ANNOUNCEMENT_TIP_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://raw.githubusercontent.com/openai/codex/main/announcement_tip.toml"
++};
+ 
+ const IS_MACOS: bool = cfg!(target_os = "macos");
+ const IS_WINDOWS: bool = cfg!(target_os = "windows");
+@@ -312,6 +317,12 @@ pub(crate) mod announcement {
+     }
+ 
+     async fn fetch_announcement_tip_text(http_client_factory: HttpClientFactory) -> Option<String> {
++        // MyCode: never fetch the upstream announcement tip. The constant folds
++        // this branch away, so the fetch never runs in a MyCode build.
++        if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++            return None;
++        }
++
+         let client = RouteAwareClientPool::new(http_client_factory, ClientRouteClass::Other);
+         let response = client
+             .get(ANNOUNCEMENT_TIP_URL)
+diff --git a/codex-rs/tui/src/updates.rs b/codex-rs/tui/src/updates.rs
+index 9bbdf310a..7547222cb 100644
+--- a/codex-rs/tui/src/updates.rs
++++ b/codex-rs/tui/src/updates.rs
+@@ -25,6 +25,13 @@ use crate::version::CODEX_CLI_VERSION;
+ pub(crate) use crate::updates_cache::dismiss_version;
+ 
+ pub fn get_upgrade_version(config: &Config) -> Option<String> {
++    // MyCode: never probe the upstream release metadata. The constant folds this
++    // branch away, so the GitHub, Homebrew, and npm registry URLs are absent from
++    // MyCode binaries.
++    if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++        return None;
++    }
++
+     if !config.check_for_update_on_startup || is_source_build_version(CODEX_CLI_VERSION) {
+         return None;
+     }
+@@ -58,8 +65,18 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
+ }
+ 
+ // We use the latest version from the cask if installation is via homebrew - homebrew does not immediately pick up the latest release and can lag behind.
+-const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
+-const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
++// MyCode: upstream release metadata is part of the blocked telemetry surface.
++// The `const if` keeps the URLs out of the shipped binary.
++const HOMEBREW_CASK_API_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://formulae.brew.sh/api/cask/codex.json"
++};
++const LATEST_RELEASE_URL: &str = if codex_mycode_policy::BLOCK_COMMERCIAL_TELEMETRY {
++    ""
++} else {
++    "https://api.github.com/repos/openai/codex/releases/latest"
++};
+ 
+ #[derive(Deserialize, Debug, Clone)]
+ struct ReleaseInfo {

@@ -5455,6 +5455,73 @@ index 000000000..d75bc8d3d
 +        ]
 +    );
 +}
+diff --git a/codex-rs/ext/mycode/policy/Cargo.toml b/codex-rs/ext/mycode/policy/Cargo.toml
+new file mode 100644
+index 000000000..c0c212260
+--- /dev/null
++++ b/codex-rs/ext/mycode/policy/Cargo.toml
+@@ -0,0 +1,13 @@
++[package]
++edition.workspace = true
++license.workspace = true
++name = "codex-mycode-policy"
++version.workspace = true
++
++[lib]
++name = "codex_mycode_policy"
++path = "src/lib.rs"
++doctest = false
++
++[lints]
++workspace = true
+diff --git a/codex-rs/ext/mycode/policy/src/lib.rs b/codex-rs/ext/mycode/policy/src/lib.rs
+new file mode 100644
+index 000000000..56922e615
+--- /dev/null
++++ b/codex-rs/ext/mycode/policy/src/lib.rs
+@@ -0,0 +1,42 @@
++//! Fork-level product policy for MyCode.
++//!
++//! Upstream resolves several telemetry and commercial defaults inline, at the
++//! call site that consumes them. MyCode pins every one of those decisions here
++//! so a single file describes what a MyCode build does, and so syncing an
++//! upstream patch never requires re-auditing each call site.
++//!
++//! # Why constants instead of `#[cfg]`
++//!
++//! Every guarded call site early-returns when [`BLOCK_COMMERCIAL_TELEMETRY`] is
++//! `true`. Because that value is a `const`, the compiler removes the guarded
++//! branch, so the upstream endpoints, credentials, and DSNs never reach the
++//! shipped binary even though the upstream source stays in the tree and keeps
++//! accepting upstream patches. Using a constant rather than a `--cfg` flag also
++//! keeps the repository free of build-system plumbing, so `just test` still
++//! compiles and runs the code paths upstream tests expect.
++//!
++//! A constant cannot guarantee elimination across rustc versions, so the release
++//! pipeline also greps the packaged binary for the blocked strings.
++
++/// Master switch for commercial telemetry egress.
++///
++/// When `true`, every guarded call site returns before performing network work:
++///
++/// - Statsig metrics export (`codex-otel`),
++/// - analytics event delivery (`codex-analytics`),
++/// - feedback uploads to Sentry (`codex-feedback`),
++/// - startup update probes (`codex-tui`, `codex-cli`),
++/// - announcement tip fetches (`codex-tui`),
++/// - built-in pet asset downloads (`codex-tui`).
++///
++/// Flip this to `false` to restore upstream behavior; the derived defaults below
++/// follow automatically.
++pub const BLOCK_COMMERCIAL_TELEMETRY: bool = true;
++
++/// Default for `check_for_update_on_startup` when the user has not configured it.
++pub const CHECK_FOR_UPDATE_ON_STARTUP_BY_DEFAULT: bool = !BLOCK_COMMERCIAL_TELEMETRY;
++
++/// Whether the built-in OTEL metrics exporter is enabled by default.
++///
++/// Upstream defaults `otel.metrics_exporter` to the Statsig ingestion route.
++pub const OTEL_METRICS_ENABLED_BY_DEFAULT: bool = !BLOCK_COMMERCIAL_TELEMETRY;
 diff --git a/docs/mycode-wire-adapter-spec.md b/docs/mycode-wire-adapter-spec.md
 new file mode 100644
 index 000000000..b8e7283ea
@@ -6343,3 +6410,106 @@ index 000000000..b8e7283ea
 +   extension config layer lands?
 +6. Which upstream changes, if any, can be contributed back to reduce future
 +   cherry-pick conflicts?
+diff --git a/scripts/mycode-verify-telemetry-blocked.py b/scripts/mycode-verify-telemetry-blocked.py
+new file mode 100755
+index 000000000..3b19909ac
+--- /dev/null
++++ b/scripts/mycode-verify-telemetry-blocked.py
+@@ -0,0 +1,97 @@
++#!/usr/bin/env python3
++"""Report which commercial telemetry payloads a MyCode binary carries.
++
++`codex-mycode-policy` blocks telemetry with `const`s that make the guarded
++branches unreachable, and `const if` expressions that never materialize the
++upstream URL. Both rely on the compiler removing the dead code, which is what
++this script checks against a *built* binary rather than against the source.
++
++Usage:
++    python3 scripts/mycode-verify-telemetry-blocked.py <binary> [<binary> ...]
++
++Exits non-zero when a payload listed in `BLOCKED_PAYLOADS` is present. Payloads
++listed in `DEFERRED_PAYLOADS` are only reported: they are behaviorally blocked
++by default but their upstream code still has to be removed, not just gated.
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++# Commercial endpoints, credentials, and DSNs that MyCode must not embed.
++# Keep this list in sync with the guarded call sites described in
++# `codex-rs/ext/mycode/policy/src/lib.rs`.
++BLOCKED_PAYLOADS: tuple[tuple[str, str], ...] = (
++    ("statsig endpoint", "ab.chatgpt.com"),
++    ("statsig api key", "client-MkRuleRQBd6qakfnDYqJVR9JuXcY57Ljly3vi5JVUIO"),
++    ("sentry dsn", "o33249.ingest.us.sentry.io"),
++    (
++        "announcement tip url",
++        "raw.githubusercontent.com/openai/codex/main/announcement_tip.toml",
++    ),
++    ("github release probe", "api.github.com/repos/openai/codex/releases/latest"),
++    ("homebrew cask probe", "formulae.brew.sh/api/cask/codex.json"),
++    ("desktop update cdn", "persistent.oaistatic.com"),
++)
++
++# Blocked by default configuration, but the upstream code is still compiled in.
++# These are the follow-up "remove the code" targets.
++DEFERRED_PAYLOADS: tuple[tuple[str, str], ...] = (
++    ("analytics events path", "/codex/analytics-events/events"),
++    ("curated plugins endpoint", "plugins/export/curated"),
++    ("curated plugins git url", "github.com/openai/plugins.git"),
++)
++
++
++def scan(path: Path, payloads: tuple[tuple[str, str], ...]) -> list[str]:
++    """Return one human-readable line per payload found in `path`."""
++    try:
++        blob = path.read_bytes()
++    except OSError as err:
++        return [f"{path}: cannot read binary: {err}"]
++
++    return [
++        f"{path}: found {label} ({needle!r})"
++        for label, needle in payloads
++        if needle.encode() in blob
++    ]
++
++
++def main(argv: list[str]) -> int:
++    if len(argv) < 2:
++        print(__doc__, file=sys.stderr)
++        return 2
++
++    binaries = [Path(raw) for raw in argv[1:]]
++    missing = [path for path in binaries if not path.is_file()]
++    if missing:
++        for path in missing:
++            print(f"{path}: not a file", file=sys.stderr)
++        return 2
++
++    failures = []
++    deferred = []
++    for path in binaries:
++        failures.extend(scan(path, BLOCKED_PAYLOADS))
++        deferred.extend(scan(path, DEFERRED_PAYLOADS))
++
++    for line in deferred:
++        print(f"warning: still compiled in: {line}", file=sys.stderr)
++
++    if failures:
++        print(
++            "commercial telemetry payloads are present in the build:", file=sys.stderr
++        )
++        for line in failures:
++            print(f"  {line}", file=sys.stderr)
++        return 1
++
++    print(f"ok: {len(binaries)} binary/binaries carry no blocked telemetry payloads")
++    if deferred:
++        print(f"note: {len(deferred)} deferred payload(s) are still compiled in")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main(sys.argv))
