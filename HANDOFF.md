@@ -11,7 +11,7 @@
 ## 0. 一句话状态
 
 `myXCode-features-v2` 是**基于上游 `main` 直接重放**的新一代 fork 分支，取代旧的
-`myXCode-features`（cherry-pick 谱系）。它已经包含：
+`archive/myXCode-features-legacy`（cherry-pick 谱系）。它已经包含：
 
 - provider wire 适配（Chat / ResponsesNative / ResponsesFunctionOnly）
 - rwe 文件工具（`read_file` / `edit_file` / `write_file`）
@@ -67,13 +67,17 @@ Prepare MCP calls directly from advertised tool identities (#47981)
 ## 3. 当前分支状态
 
 ```text
-领先 upstream/main: 10 个提交
+领先 upstream/main: 11 个提交
 落后 upstream/main: 0
 ```
+
+已推送到 `origin/myXCode-features-v2`（fork：`https://github.com/QAQTam/myXCode.git`）。
 
 提交（新 → 旧）：
 
 ```text
+e080500b0 chore(mycode): add the fork feature-defaults patch layer
+ff6e76883 docs(mycode): rewrite handoff for the v2 branch
 52c38b319 feat(mycode): enable advanced fork feature defaults
 1eb3763ee chore(mycode): extend patch series with the telemetry block layer
 4749c4ac5 test(mycode): adapt feedback tests to the blocked upload path
@@ -470,11 +474,17 @@ git rebase upstream/main        # 或 merge，取决于是否已推送
 
 ---
 
-## 12. 旧分支 `myXCode-features`
+## 12. 旧分支（已归档）
 
-旧分支的**全部有价值内容已并入 v2**。它现在只是归档：
+旧分支已重命名为 **`archive/myXCode-features-legacy`**（原 `myXCode-features`），
+并推送到 `origin/archive/myXCode-features-legacy`。
+
+它的**全部有价值内容已并入 v2**，现在只是归档：
 
 - 它用 cherry-pick 同步上游，merge-base 停在 `5c5308fc9`，落后 353 / 领先 109；
-- 遥测阻断的 4 个提交**只存在于本地**（`origin/myXCode-features` 停在 `4586387c3`，
-  远程落后 91 个提交）；
-- v2 已包含这些内容，因此旧分支可以安全归档或删除。
+- 遥测阻断的 4 个提交此前**只存在于本地**（`origin/myXCode-features` 停在
+  `4586387c3`，远程落后 91 个提交）；归档推送后这些提交已经落到远端；
+- v2 已包含这些内容，因此旧分支可以安全删除。
+
+> 注意：`origin/myXCode-features` 这个旧的远程分支指针仍然存在（停在
+> `4586387c3`），未被删除。需要的话可以手动清理。
