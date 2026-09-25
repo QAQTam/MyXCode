@@ -8,6 +8,7 @@ use codex_protocol::permissions::LocalFileSystemPolicyMatcher;
 use codex_protocol::protocol::AskForApproval;
 use codex_sandboxing::get_platform_sandbox;
 use codex_utils_path_uri::PathUri;
+use std::collections::HashMap;
 use std::io;
 
 const PATCH_REJECTED_OUTSIDE_PROJECT_REASON: &str =
@@ -70,7 +71,17 @@ pub fn assess_patch_safety(
     permission_profile: &PermissionProfile,
     matching: &PatchPolicyMatcher<'_>,
 ) -> io::Result<SafetyCheck> {
-    if action.is_empty() {
+    assess_file_mutation_safety(action.changes(), policy, permission_profile, matching)
+}
+
+/// Assesses a single-file or multi-file mutation without requiring a parsed patch.
+pub(crate) fn assess_file_mutation_safety(
+    changes: &HashMap<PathUri, ApplyPatchFileChange>,
+    policy: AskForApproval,
+    permission_profile: &PermissionProfile,
+    matching: &PatchPolicyMatcher<'_>,
+) -> io::Result<SafetyCheck> {
+    if changes.is_empty() {
         return Ok(SafetyCheck::Reject {
             reason: "empty patch".to_string(),
         });
@@ -103,7 +114,7 @@ pub fn assess_patch_safety(
     // possible that paths in the patch are hard links to files outside the
     // writable roots, so we should still run `apply_patch` in a sandbox in that case.
     // Disabled and External profiles intentionally do not apply an outer sandbox.
-    if is_write_patch_constrained_to_writable_paths(action, matching)?
+    if is_write_mutation_constrained_to_writable_paths(changes, matching)?
         && (matches!(
             permission_profile,
             PermissionProfile::Disabled | PermissionProfile::External { .. }
@@ -143,8 +154,16 @@ fn patch_rejection_reason(
     }
 }
 
+#[cfg(test)]
 fn is_write_patch_constrained_to_writable_paths(
     action: &ApplyPatchAction,
+    matching: &PatchPolicyMatcher<'_>,
+) -> io::Result<bool> {
+    is_write_mutation_constrained_to_writable_paths(action.changes(), matching)
+}
+
+fn is_write_mutation_constrained_to_writable_paths(
+    changes: &HashMap<PathUri, ApplyPatchFileChange>,
     matching: &PatchPolicyMatcher<'_>,
 ) -> io::Result<bool> {
     // A full-disk policy permits every patch target, so no per-path writable-root check can
@@ -156,7 +175,7 @@ fn is_write_patch_constrained_to_writable_paths(
         return Ok(true);
     }
 
-    for (path, change) in action.changes() {
+    for (path, change) in changes {
         match change {
             ApplyPatchFileChange::Add { .. } | ApplyPatchFileChange::Delete { .. } => {
                 if !matching.can_write_path(path)? {

@@ -478,6 +478,7 @@ impl FileChangeItem {
             call_id: self.id.clone(),
             turn_id,
             auto_approved: self.auto_approved.unwrap_or(false),
+            tool_name: self.tool_name.clone(),
             changes: self.changes.clone(),
         })
     }
@@ -490,6 +491,7 @@ impl FileChangeItem {
             stdout: self.stdout.clone().unwrap_or_default(),
             stderr: self.stderr.clone().unwrap_or_default(),
             success: status == PatchApplyStatus::Completed,
+            tool_name: self.tool_name.clone(),
             changes: self.changes.clone(),
             status,
         }))

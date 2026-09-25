@@ -8,8 +8,16 @@ use crate::thread_transcript::tools::McpHistory;
 use codex_utils_path_uri::LegacyAppPathString;
 
 impl ChatWidget {
-    pub(super) fn on_patch_apply_begin(&mut self, changes: HashMap<PathBuf, FileChange>) {
-        self.add_to_history(history_cell::new_patch_event(changes, &self.config.cwd));
+    pub(super) fn on_patch_apply_begin(
+        &mut self,
+        changes: HashMap<PathBuf, FileChange>,
+        tool_name: Option<String>,
+    ) {
+        self.add_to_history(history_cell::new_patch_event(
+            changes,
+            &self.config.cwd,
+            tool_name,
+        ));
     }
 
     pub(super) fn on_view_image_tool_call(&mut self, path: LegacyAppPathString) {

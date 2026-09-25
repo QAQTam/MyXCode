@@ -23,6 +23,7 @@ use codex_login::default_client::originator;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_RUNTIME_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::RESPONSE_ADAPTER_HEADER;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::built_in_model_providers;
 use codex_models_manager::bundled_models_response;
@@ -106,6 +107,36 @@ use wiremock::matchers::query_param;
 const INSTALLATION_ID_FILENAME: &str = "installation_id";
 const TEST_WINDOW_ID: &str = "test-thread:0";
 const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn responses_function_only_uses_top_level_function_tools() -> anyhow::Result<()> {
+    let server = start_mock_server().await;
+    let response_mock = mount_sse_once(&server, sse(vec![ev_completed("done")])).await;
+    let test = test_codex()
+        .with_config(|config| {
+            config.model_provider.http_headers = Some(std::collections::HashMap::from([(
+                RESPONSE_ADAPTER_HEADER.to_string(),
+                "responses_function_only".into(),
+            )]));
+        })
+        .build_with_auto_env(&server)
+        .await?;
+
+    test.submit_turn("hello").await?;
+
+    let body = response_mock.single_request().body_json();
+    let tools = body["tools"].as_array().expect("tools should be an array");
+    assert!(!tools.is_empty());
+    assert!(tools.iter().all(|tool| tool["type"] == "function"));
+    assert!(
+        body["input"]
+            .as_array()
+            .expect("input should be an array")
+            .iter()
+            .all(|item| item["type"] != "additional_tools")
+    );
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_request_preserves_flex_without_catalog_support_or_fast_mode()
@@ -1650,6 +1681,7 @@ async fn send_provider_auth_request(server: &MockServer, auth: ModelProviderAuth
         wire_api: WireApi::Responses,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: Some(0),
         stream_max_retries: Some(0),
@@ -3168,6 +3200,7 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
         wire_api: WireApi::Responses,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: Some(0),
         stream_max_retries: Some(0),
@@ -3805,6 +3838,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
             "Custom-Header".to_string(),
             "Value".into(),
         )])),
+        extensions: None,
         env_http_headers: None,
         request_max_retries: None,
         stream_max_retries: None,
@@ -3891,6 +3925,7 @@ async fn env_var_overrides_loaded_auth() {
             "Custom-Header".to_string(),
             "Value".into(),
         )])),
+        extensions: None,
         env_http_headers: None,
         request_max_retries: None,
         stream_max_retries: None,

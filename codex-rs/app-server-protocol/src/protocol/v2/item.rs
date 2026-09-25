@@ -331,6 +331,10 @@ pub enum ThreadItem {
         id: String,
         changes: Vec<FileUpdateChange>,
         status: PatchApplyStatus,
+        /// Tool that produced this file change, when known.
+        #[serde(default)]
+        #[ts(optional)]
+        tool_name: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     #[ts(rename_all = "camelCase")]
@@ -1027,6 +1031,7 @@ impl From<CoreTurnItem> for ThreadItem {
                     .as_ref()
                     .map(PatchApplyStatus::from)
                     .unwrap_or(PatchApplyStatus::InProgress),
+                tool_name: file_change.tool_name,
             },
             CoreTurnItem::McpToolCall(mcp) => {
                 let duration_ms = mcp

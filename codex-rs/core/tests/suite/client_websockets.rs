@@ -2635,6 +2635,7 @@ fn websocket_provider_with_connect_timeout(
         wire_api: WireApi::Responses,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: Some(0),
         stream_max_retries: Some(0),

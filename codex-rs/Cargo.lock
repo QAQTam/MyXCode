@@ -2915,6 +2915,9 @@ dependencies = [
  "codex-model-provider",
  "codex-model-provider-info",
  "codex-models-manager",
+ "codex-mycode-chat-adapter",
+ "codex-mycode-file-tools",
+ "codex-mycode-model-wire",
  "codex-network-proxy",
  "codex-otel",
  "codex-plugin",
@@ -3977,6 +3980,7 @@ dependencies = [
  "codex-login",
  "codex-model-provider-info",
  "codex-models-manager",
+ "codex-mycode-model-wire",
  "codex-otel",
  "codex-protocol",
  "codex-response-debug-context",
@@ -4051,6 +4055,48 @@ dependencies = [
  "tracelogging",
  "windows-sys 0.61.2",
  "wxc_common",
+]
+
+[[package]]
+name = "codex-mycode-chat-adapter"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "codex-api",
+ "codex-client",
+ "codex-mycode-model-wire",
+ "codex-protocol",
+ "codex-tools",
+ "eventsource-stream",
+ "futures",
+ "http 1.4.0",
+ "pretty_assertions",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "codex-mycode-file-tools"
+version = "0.0.0"
+dependencies = [
+ "codex-apply-patch",
+ "codex-tools",
+ "pretty_assertions",
+ "similar",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "codex-mycode-model-wire"
+version = "0.0.0"
+dependencies = [
+ "codex-protocol",
+ "codex-tools",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

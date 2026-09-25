@@ -76,6 +76,7 @@ async fn continue_after_stream_error() {
         wire_api: WireApi::Responses,
         query_params: None,
         http_headers: None,
+        extensions: None,
         env_http_headers: None,
         request_max_retries: Some(1),
         stream_max_retries: Some(1),

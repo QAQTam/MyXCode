@@ -250,10 +250,11 @@ impl ChatWidget {
             ThreadItem::FileChange {
                 changes,
                 status: codex_app_server_protocol::PatchApplyStatus::Completed,
+                tool_name,
                 ..
             } => {
                 if !changes.is_empty() {
-                    self.on_patch_apply_begin(file_update_changes_to_display(changes));
+                    self.on_patch_apply_begin(file_update_changes_to_display(changes), tool_name);
                 }
             }
             item => {

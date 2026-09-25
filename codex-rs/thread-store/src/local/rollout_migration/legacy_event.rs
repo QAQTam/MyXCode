@@ -156,6 +156,7 @@ pub(super) fn completed_item(
             TurnItem::FileChange(FileChangeItem {
                 id: event.call_id.clone(),
                 changes: event.changes.clone(),
+                tool_name: event.tool_name.clone(),
                 status: Some(event.status.clone()),
                 auto_approved: None,
                 stdout: (!event.stdout.is_empty()).then(|| event.stdout.clone()),

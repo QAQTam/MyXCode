@@ -62,7 +62,7 @@ use codex_utils_path_uri::PathUri;
 
 const APPLY_PATCH_ARGUMENT_DIFF_BUFFER_INTERVAL: Duration = Duration::from_millis(500);
 
-fn apply_patch_file_update_mode(turn: &TurnContext) -> ApplyPatchFileUpdateMode {
+pub(crate) fn apply_patch_file_update_mode(turn: &TurnContext) -> ApplyPatchFileUpdateMode {
     if turn
         .config
         .features
@@ -566,6 +566,7 @@ async fn execute_verified_patch(
     )?;
     let changes = convert_apply_patch_to_protocol(&apply.action);
     let emitter = ToolEmitter::apply_patch_for_environment(
+        tool_ctx.tool_name.name.clone(),
         changes.clone(),
         apply.auto_approved,
         turn_environment.selection.environment_id.clone(),

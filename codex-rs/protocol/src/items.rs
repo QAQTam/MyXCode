@@ -416,6 +416,10 @@ pub struct ImageGenerationItem {
 pub struct FileChangeItem {
     pub id: String,
     pub changes: HashMap<PathBuf, FileChange>,
+    /// Tool that produced this file change, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub status: Option<PatchApplyStatus>,

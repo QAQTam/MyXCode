@@ -366,7 +366,9 @@ pub(crate) fn create_diff_summary(
     cwd: &Path,
     wrap_cols: usize,
 ) -> Vec<RtLine<'static>> {
-    visible_lines(create_diff_summary_with_links(changes, cwd, wrap_cols))
+    visible_lines(create_diff_summary_with_links(
+        changes, cwd, wrap_cols, /*tool_name*/ None,
+    ))
 }
 
 /// Render the same diff while retaining logical code lines across display wrapping and gutters.
@@ -374,9 +376,16 @@ pub(crate) fn create_diff_summary_with_links(
     changes: &HashMap<PathBuf, FileChange>,
     cwd: &Path,
     wrap_cols: usize,
+    tool_name: Option<&str>,
 ) -> Vec<HyperlinkLine> {
     let rows = collect_rows(changes);
-    render_changes_block(rows, wrap_cols, cwd, /*preview_lines*/ None)
+    render_changes_block(
+        rows,
+        wrap_cols,
+        cwd,
+        /*preview_lines*/ None,
+        display_verb_for_tool(tool_name),
+    )
 }
 
 /// Preserve each file's path and change counts while bounding its preview body.
@@ -385,8 +394,23 @@ pub(crate) fn create_diff_preview_with_links(
     cwd: &Path,
     wrap_cols: usize,
     preview_lines: usize,
+    tool_name: Option<&str>,
 ) -> Vec<HyperlinkLine> {
-    render_changes_block(collect_rows(changes), wrap_cols, cwd, Some(preview_lines))
+    render_changes_block(
+        collect_rows(changes),
+        wrap_cols,
+        cwd,
+        Some(preview_lines),
+        display_verb_for_tool(tool_name),
+    )
+}
+
+fn display_verb_for_tool(tool_name: Option<&str>) -> Option<&'static str> {
+    match tool_name {
+        Some("write_file") => Some("Write"),
+        Some("edit_file") => Some("Edit"),
+        _ => None,
+    }
 }
 
 // Shared row for per-file presentation
@@ -444,6 +468,7 @@ fn render_changes_block(
     wrap_cols: usize,
     cwd: &Path,
     preview_lines: Option<usize>,
+    verb_override: Option<&'static str>,
 ) -> Vec<HyperlinkLine> {
     let mut out: Vec<HyperlinkLine> = Vec::new();
 
@@ -463,18 +488,18 @@ fn render_changes_block(
     let noun = if file_count == 1 { "file" } else { "files" };
     let mut header_spans: Vec<RtSpan<'static>> = vec!["• ".dim()];
     if let [row] = &rows[..] {
-        let verb = match row.change {
+        let verb = verb_override.unwrap_or(match row.change {
             FileChange::Add { .. } => "Added",
             FileChange::Delete { .. } => "Deleted",
             _ => "Edited",
-        };
+        });
         header_spans.push(verb.bold());
         header_spans.push(" ".into());
         header_spans.extend(render_path(row));
         header_spans.push(" ".into());
         header_spans.extend(render_line_count_summary(row.added, row.removed));
     } else {
-        header_spans.push("Edited".bold());
+        header_spans.push(verb_override.unwrap_or("Edited").bold());
         header_spans.push(format!(" {file_count} {noun} ").into());
         header_spans.extend(render_line_count_summary(total_added, total_removed));
     }

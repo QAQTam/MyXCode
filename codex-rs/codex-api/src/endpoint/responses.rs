@@ -10,6 +10,8 @@ use crate::requests::headers::insert_header;
 use crate::requests::headers::subagent_header;
 use crate::sse::spawn_response_stream;
 use crate::telemetry::SseTelemetry;
+use crate::transport::ResponseTransport;
+use crate::transport::ResponseTransportFuture;
 use codex_client::EncodedJsonBody;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
@@ -155,5 +157,15 @@ impl<T: HttpTransport> ResponsesClient<T> {
             self.sse_telemetry.clone(),
             turn_state,
         ))
+    }
+}
+
+impl<T: HttpTransport + 'static> ResponseTransport for ResponsesClient<T> {
+    fn stream_response(
+        &self,
+        request: ResponsesApiRequest,
+        options: ResponsesOptions,
+    ) -> ResponseTransportFuture<'_> {
+        Box::pin(self.stream_request(request, options))
     }
 }

@@ -13,7 +13,7 @@ pub fn build_session_headers(session_id: Option<String>, thread_id: Option<Strin
     headers
 }
 
-pub(crate) fn subagent_header(source: &Option<SessionSource>) -> Option<String> {
+pub fn subagent_header(source: &Option<SessionSource>) -> Option<String> {
     let SessionSource::SubAgent(sub) = source.as_ref()? else {
         return None;
     };
@@ -30,7 +30,7 @@ pub(crate) fn subagent_header(source: &Option<SessionSource>) -> Option<String> 
     }
 }
 
-pub(crate) fn insert_header(headers: &mut HeaderMap, name: &str, value: &str) {
+pub fn insert_header(headers: &mut HeaderMap, name: &str, value: &str) {
     if let (Ok(header_name), Ok(header_value)) = (
         name.parse::<http::HeaderName>(),
         HeaderValue::from_str(value),

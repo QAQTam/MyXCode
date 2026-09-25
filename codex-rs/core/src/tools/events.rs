@@ -198,6 +198,7 @@ async fn emit_exec_command_begin(ctx: ToolEventCtx<'_>, exec_input: &ExecCommand
 // Concrete, allocation-free emitter: avoid trait objects and boxed futures.
 pub(crate) enum ToolEmitter {
     ApplyPatch {
+        tool_name: String,
         changes: HashMap<PathBuf, FileChange>,
         auto_approved: bool,
         environment_id: Option<String>,
@@ -214,11 +215,13 @@ pub(crate) enum ToolEmitter {
 
 impl ToolEmitter {
     pub fn apply_patch_for_environment(
+        tool_name: String,
         changes: HashMap<PathBuf, FileChange>,
         auto_approved: bool,
         environment_id: String,
     ) -> Self {
         Self::ApplyPatch {
+            tool_name,
             changes,
             auto_approved,
             environment_id: Some(environment_id),
@@ -247,6 +250,7 @@ impl ToolEmitter {
         match (self, stage) {
             (
                 Self::ApplyPatch {
+                    tool_name,
                     changes,
                     auto_approved,
                     ..
@@ -259,6 +263,7 @@ impl ToolEmitter {
                         &TurnItem::FileChange(FileChangeItem {
                             id: ctx.call_id.to_string(),
                             changes: changes.clone(),
+                            tool_name: Some(tool_name.clone()),
                             status: None,
                             auto_approved: Some(*auto_approved),
                             stdout: None,
@@ -269,6 +274,7 @@ impl ToolEmitter {
             }
             (
                 Self::ApplyPatch {
+                    tool_name,
                     changes,
                     environment_id,
                     ..
@@ -288,6 +294,7 @@ impl ToolEmitter {
                     .unwrap_or(TurnDiffTrackerUpdate::Invalidate);
                 emit_patch_end(
                     ctx,
+                    tool_name.clone(),
                     changes.clone(),
                     output.stdout.text.clone(),
                     output.stderr.text.clone(),
@@ -297,11 +304,14 @@ impl ToolEmitter {
                 .await;
             }
             (
-                Self::ApplyPatch { changes, .. },
+                Self::ApplyPatch {
+                    tool_name, changes, ..
+                },
                 ToolEventStage::Failure(ToolEventFailure::Output(output)),
             ) => {
                 emit_patch_end(
                     ctx,
+                    tool_name.clone(),
                     changes.clone(),
                     output.stdout.text.clone(),
                     output.stderr.text.clone(),
@@ -315,11 +325,14 @@ impl ToolEmitter {
                 .await;
             }
             (
-                Self::ApplyPatch { changes, .. },
+                Self::ApplyPatch {
+                    tool_name, changes, ..
+                },
                 ToolEventStage::Failure(ToolEventFailure::Message(message)),
             ) => {
                 emit_patch_end(
                     ctx,
+                    tool_name.clone(),
                     changes.clone(),
                     String::new(),
                     (*message).to_string(),
@@ -330,6 +343,7 @@ impl ToolEmitter {
             }
             (
                 Self::ApplyPatch {
+                    tool_name,
                     changes,
                     environment_id,
                     ..
@@ -341,6 +355,7 @@ impl ToolEmitter {
             ) => {
                 emit_patch_end(
                     ctx,
+                    tool_name.clone(),
                     changes.clone(),
                     String::new(),
                     (*message).to_string(),
@@ -621,6 +636,7 @@ fn plugin_attribution_fields(
 
 async fn emit_patch_end(
     ctx: ToolEventCtx<'_>,
+    tool_name: String,
     changes: HashMap<PathBuf, FileChange>,
     stdout: String,
     stderr: String,
@@ -633,6 +649,7 @@ async fn emit_patch_end(
             TurnItem::FileChange(FileChangeItem {
                 id: ctx.call_id.to_string(),
                 changes,
+                tool_name: Some(tool_name),
                 status: Some(status),
                 auto_approved: None,
                 stdout: Some(stdout),
@@ -712,6 +729,7 @@ mod tests {
         .expect("apply patch");
 
         ToolEmitter::ApplyPatch {
+            tool_name: "apply_patch".to_string(),
             changes: HashMap::new(),
             auto_approved: false,
             environment_id: None,
@@ -814,6 +832,7 @@ mod tests {
                     "call-id",
                     Some(&tracker),
                 ),
+                "apply_patch".to_string(),
                 HashMap::new(),
                 String::new(),
                 String::new(),
@@ -869,6 +888,7 @@ mod tests {
                 "call-id",
                 Some(&tracker),
             ),
+            "apply_patch".to_string(),
             HashMap::new(),
             String::new(),
             String::new(),

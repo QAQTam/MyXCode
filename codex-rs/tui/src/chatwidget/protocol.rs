@@ -583,8 +583,13 @@ impl ChatWidget {
                 self.on_context_compaction_started(id, elapsed);
             }
             item @ ThreadItem::CommandExecution { .. } => self.on_command_execution_started(item),
-            ThreadItem::FileChange { id: _, changes, .. } => {
-                self.on_patch_apply_begin(file_update_changes_to_display(changes));
+            ThreadItem::FileChange {
+                id: _,
+                changes,
+                tool_name,
+                ..
+            } => {
+                self.on_patch_apply_begin(file_update_changes_to_display(changes), tool_name);
             }
             item @ ThreadItem::McpToolCall { .. } => self.on_mcp_tool_call_started(item),
             item @ ThreadItem::DynamicToolCall { .. } => self.on_dynamic_tool_item(item),

@@ -1083,6 +1083,7 @@ async fn live_app_server_file_change_item_started_preserves_changes() {
             diff: "hello\n".to_string(),
         }],
         status: AppServerPatchApplyStatus::InProgress,
+        tool_name: None,
     };
     chat.handle_server_notification(
         ServerNotification::ItemStarted(ItemStartedNotification {
@@ -1105,6 +1106,7 @@ async fn live_app_server_file_change_item_started_preserves_changes() {
             id,
             changes,
             status: AppServerPatchApplyStatus::Completed,
+            tool_name: None,
         },
         "turn-1".to_string(),
         ReplayKind::ResumeInitialMessages,
@@ -1115,6 +1117,63 @@ async fn live_app_server_file_change_item_started_preserves_changes() {
     insta::assert_snapshot!(transcript, @"
     • Added foo.txt (+1 -0)
         1 +hello
+    ");
+}
+
+#[tokio::test]
+async fn live_app_server_file_change_uses_tool_name_as_verb() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    for (id, tool_name, path, kind, diff) in [
+        (
+            "write-1",
+            "write_file",
+            "new.txt",
+            PatchChangeKind::Add,
+            "hello\n",
+        ),
+        (
+            "edit-1",
+            "edit_file",
+            "sample.txt",
+            PatchChangeKind::Update { move_path: None },
+            "@@ -1 +1 @@\n-old\n+new\n",
+        ),
+    ] {
+        chat.handle_server_notification(
+            ServerNotification::ItemStarted(ItemStartedNotification {
+                thread_id: "thread-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                started_at_ms: 0,
+                item: AppServerThreadItem::FileChange {
+                    id: id.to_string(),
+                    changes: vec![FileUpdateChange {
+                        path: path.to_string(),
+                        kind,
+                        diff: diff.to_string(),
+                    }],
+                    status: AppServerPatchApplyStatus::InProgress,
+                    tool_name: Some(tool_name.to_string()),
+                },
+            }),
+            /*replay_kind*/ None,
+        );
+    }
+
+    let transcript = drain_insert_history(&mut rx)
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    insta::assert_snapshot!(transcript, @"
+    • Write new.txt (+1 -0)
+        1 +hello
+
+
+
+    • Edit sample.txt (+1 -1)
+        1 -old
+        1 +new
     ");
 }
 

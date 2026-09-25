@@ -9,7 +9,7 @@
 ///  • Empty `pattern` → returns `Some(start)` (no-op match)
 ///  • `pattern.len() > lines.len()` → returns `None` (cannot match, avoids
 ///    out‑of‑bounds panic that occurred pre‑2025‑04‑12)
-pub(crate) fn seek_sequence(
+pub fn seek_sequence(
     lines: &[String],
     pattern: &[String],
     start: usize,

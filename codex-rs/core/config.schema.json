@@ -2587,6 +2587,21 @@
       },
       "type": "object"
     },
+    "ModelProviderExtensions": {
+      "additionalProperties": false,
+      "description": "Fork-specific provider extensions that do not belong to the upstream provider schema.",
+      "properties": {
+        "wire_adapter": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResponseAdapter"
+            }
+          ],
+          "description": "Wire adapter selected for this provider."
+        }
+      },
+      "type": "object"
+    },
     "ModelProviderInfo": {
       "additionalProperties": false,
       "description": "Serializable representation of a provider definition.",
@@ -2629,6 +2644,14 @@
         "experimental_bearer_token": {
           "description": "Value to use with `Authorization: Bearer <token>` header. Use of this config is discouraged in favor of `env_key` for security reasons, but this may be necessary when using this programmatically.",
           "type": "string"
+        },
+        "extensions": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ModelProviderExtensions"
+            }
+          ],
+          "description": "Fork-specific provider extensions."
         },
         "gateway_oauth": {
           "allOf": [
@@ -3833,6 +3856,32 @@
           "description": "Option to disable reasoning summaries.",
           "enum": [
             "none"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ResponseAdapter": {
+      "description": "Response transport selected for a provider.",
+      "oneOf": [
+        {
+          "description": "The canonical Responses API transport.",
+          "enum": [
+            "responses"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Responses API with a conservative function-only tool surface.",
+          "enum": [
+            "responses_function_only"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Translate canonical requests to Chat Completions.",
+          "enum": [
+            "chat_completions"
           ],
           "type": "string"
         }

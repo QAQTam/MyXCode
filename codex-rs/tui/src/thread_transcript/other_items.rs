@@ -22,12 +22,14 @@ pub(super) fn cells(item: ThreadItem, cwd: &AbsolutePathBuf) -> TranscriptCells 
             id,
             changes,
             status,
+            tool_name,
         } => match status {
             PatchApplyStatus::Completed if !changes.is_empty() => {
                 cells.push(Arc::new(
                     history_cell::new_patch_event(
                         file_update_changes_to_display(changes),
                         cwd.as_path(),
+                        tool_name,
                     )
                     .with_activity_id(id),
                 ));

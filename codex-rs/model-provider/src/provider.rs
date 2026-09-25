@@ -6,7 +6,12 @@ use std::sync::Arc;
 
 use codex_api::ApiError;
 use codex_api::Provider;
+use codex_api::RequestTelemetry;
+use codex_api::ReqwestTransport;
+use codex_api::ResponseTransport;
+use codex_api::ResponsesClient;
 use codex_api::SharedAuthProvider;
+use codex_api::SseTelemetry;
 use codex_api::TransportError;
 use codex_api::is_azure_responses_provider;
 use codex_login::AuthManager;
@@ -15,10 +20,12 @@ use codex_login::GatewayAuthManager;
 use codex_login::WorkspaceRoutingRequest;
 use codex_login::default_client::ClientRedirectPolicy;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::ResponseAdapter;
 use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
+use codex_mycode_model_wire::WireAdapter;
 use codex_protocol::account::ProviderAccount;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
@@ -50,6 +57,8 @@ pub enum RemoteCompactionSupport {
 /// that the active provider marks unsupported here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderCapabilities {
+    /// Wire adapter used to encode and decode model requests for this provider.
+    pub wire_adapter: WireAdapter,
     pub namespace_tools: bool,
     pub image_generation: bool,
     pub web_search: bool,
@@ -60,6 +69,7 @@ pub struct ProviderCapabilities {
 impl Default for ProviderCapabilities {
     fn default() -> Self {
         Self {
+            wire_adapter: WireAdapter::ResponsesNative,
             namespace_tools: true,
             image_generation: true,
             web_search: true,
@@ -228,6 +238,25 @@ pub trait ModelProvider: fmt::Debug + Send + Sync {
             self.info()
                 .to_api_provider(auth.as_ref().map(CodexAuth::auth_mode))
         })
+    }
+
+    /// Builds the response transport used for one streaming model request.
+    ///
+    /// The default transport speaks the Responses API. Providers that speak a
+    /// different wire format can override this method while leaving the agent
+    /// loop and its canonical request/event types unchanged.
+    fn response_transport(
+        &self,
+        transport: ReqwestTransport,
+        provider: Provider,
+        auth: SharedAuthProvider,
+        request_telemetry: Option<Arc<dyn RequestTelemetry>>,
+        sse_telemetry: Option<Arc<dyn SseTelemetry>>,
+    ) -> Arc<dyn ResponseTransport> {
+        Arc::new(
+            ResponsesClient::new(transport, provider, auth)
+                .with_telemetry(request_telemetry, sse_telemetry),
+        )
     }
 
     /// Resolves routing for Responses HTTP, compaction, and WebSocket handshakes.
@@ -402,6 +431,14 @@ impl ConfiguredModelProvider {
     }
 }
 
+fn default_wire_adapter(info: &ModelProviderInfo) -> WireAdapter {
+    if info.is_openai() || is_azure_responses_provider(&info.name, info.base_url.as_deref()) {
+        WireAdapter::ResponsesNative
+    } else {
+        WireAdapter::ResponsesFunctionOnly
+    }
+}
+
 impl ModelProvider for ConfiguredModelProvider {
     fn info(&self) -> &ModelProviderInfo {
         &self.info
@@ -415,8 +452,17 @@ impl ModelProvider for ConfiguredModelProvider {
         } else {
             RemoteCompactionSupport::Unsupported
         };
+        let wire_adapter = match self.info.response_adapter().unwrap_or_default() {
+            Some(ResponseAdapter::Responses) => WireAdapter::ResponsesNative,
+            Some(ResponseAdapter::ResponsesFunctionOnly) => WireAdapter::ResponsesFunctionOnly,
+            Some(ResponseAdapter::ChatCompletions) => WireAdapter::ChatCompletionsFunctionOnly,
+            None => default_wire_adapter(&self.info),
+        };
+        let wire_capabilities = wire_adapter.capabilities();
 
         ProviderCapabilities {
+            wire_adapter,
+            namespace_tools: wire_capabilities.namespace_tools,
             remote_compaction,
             ..ProviderCapabilities::default()
         }
@@ -689,6 +735,7 @@ mod tests {
             wire_api: WireApi::Responses,
             query_params: None,
             http_headers: None,
+            extensions: None,
             env_http_headers: None,
             request_max_retries: Some(0),
             stream_max_retries: Some(0),
@@ -763,6 +810,89 @@ mod tests {
                 remote_compaction: RemoteCompactionSupport::V2,
                 ..ProviderCapabilities::default()
             }
+        );
+    }
+
+    #[test]
+    fn configured_provider_exposes_selected_wire_adapter() {
+        for (configured_adapter, expected_adapter, namespace_tools) in [
+            (
+                "responses_function_only",
+                WireAdapter::ResponsesFunctionOnly,
+                false,
+            ),
+            (
+                "chat_completions",
+                WireAdapter::ChatCompletionsFunctionOnly,
+                false,
+            ),
+        ] {
+            let provider = create_model_provider(
+                ModelProviderInfo {
+                    http_headers: Some(std::collections::HashMap::from([(
+                        codex_model_provider_info::RESPONSE_ADAPTER_HEADER.to_string(),
+                        configured_adapter.into(),
+                    )])),
+                    ..ModelProviderInfo::default()
+                },
+                /*auth_manager*/ None,
+            );
+
+            assert_eq!(
+                provider.capabilities().wire_adapter,
+                expected_adapter,
+                "{configured_adapter}"
+            );
+            assert_eq!(
+                provider.capabilities().namespace_tools,
+                namespace_tools,
+                "{configured_adapter}"
+            );
+        }
+    }
+
+    #[test]
+    fn configured_provider_extension_selects_wire_adapter() {
+        let provider = create_model_provider(
+            ModelProviderInfo {
+                extensions: Some(codex_model_provider_info::ModelProviderExtensions {
+                    wire_adapter: Some(ResponseAdapter::ResponsesFunctionOnly),
+                }),
+                ..ModelProviderInfo::default()
+            },
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesFunctionOnly
+        );
+        assert!(!provider.capabilities().namespace_tools);
+    }
+
+    #[test]
+    fn configured_provider_defaults_generic_responses_to_function_only() {
+        let provider = create_model_provider(
+            provider_for("https://example.test/v1".to_string()),
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesFunctionOnly
+        );
+    }
+
+    #[test]
+    fn configured_provider_defaults_openai_responses_to_native() {
+        let provider = create_model_provider(
+            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities().wire_adapter,
+            WireAdapter::ResponsesNative
         );
     }
 

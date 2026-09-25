@@ -3726,6 +3726,10 @@ pub struct PatchApplyBeginEvent {
     pub turn_id: String,
     /// If true, there was no ApplyPatchApprovalRequest for this patch.
     pub auto_approved: bool,
+    /// Tool that produced this file change, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_name: Option<String>,
     /// The changes to be applied.
     pub changes: HashMap<PathBuf, FileChange>,
 }
@@ -3752,6 +3756,10 @@ pub struct PatchApplyEndEvent {
     pub stderr: String,
     /// Whether the patch was applied successfully.
     pub success: bool,
+    /// Tool that produced this file change, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tool_name: Option<String>,
     /// The changes that were applied (mirrors PatchApplyBeginEvent::changes).
     #[serde(default)]
     pub changes: HashMap<PathBuf, FileChange>,
@@ -5380,6 +5388,7 @@ mod tests {
                 )]
                 .into_iter()
                 .collect(),
+                tool_name: Some("apply_patch".into()),
                 status: None,
                 auto_approved: Some(true),
                 stdout: None,
@@ -5499,6 +5508,7 @@ mod tests {
                 )]
                 .into_iter()
                 .collect(),
+                tool_name: Some("apply_patch".into()),
                 status: Some(PatchApplyStatus::Completed),
                 auto_approved: None,
                 stdout: Some("Done!".into()),

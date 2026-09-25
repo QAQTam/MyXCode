@@ -71,6 +71,9 @@ members = [
     "ext/items",
     "ext/memories",
     "ext/mcp",
+    "ext/mycode/chat-adapter",
+    "ext/mycode/file-tools",
+    "ext/mycode/model-wire",
     "ext/queue",
     "ext/skills",
     "ext/web-search",
@@ -249,6 +252,9 @@ codex-memories-read = { path = "memories/read" }
 codex-memories-write = { path = "memories/write" }
 codex-mcp = { path = "codex-mcp" }
 codex-mcp-extension = { path = "ext/mcp" }
+codex-mycode-chat-adapter = { path = "ext/mycode/chat-adapter" }
+codex-mycode-file-tools = { path = "ext/mycode/file-tools" }
+codex-mycode-model-wire = { path = "ext/mycode/model-wire" }
 codex-model-provider-info = { path = "model-provider-info" }
 codex-models-manager = { path = "models-manager" }
 codex-mxc-sandbox = { path = "mxc-sandbox" }

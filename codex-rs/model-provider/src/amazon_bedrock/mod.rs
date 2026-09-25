@@ -24,6 +24,7 @@ use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
+use codex_mycode_model_wire::WireAdapter;
 use codex_protocol::account::ProviderAccount;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
@@ -276,6 +277,7 @@ impl ModelProvider for AmazonBedrockModelProvider {
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
+            wire_adapter: WireAdapter::ResponsesNative,
             namespace_tools: true,
             image_generation: false,
             web_search: self.endpoint == BedrockEndpoint::Mantle,
@@ -692,6 +694,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                wire_adapter: WireAdapter::ResponsesNative,
                 namespace_tools: true,
                 image_generation: false,
                 web_search: true,
@@ -711,6 +714,7 @@ mod tests {
         assert_eq!(
             provider.capabilities(),
             ProviderCapabilities {
+                wire_adapter: WireAdapter::ResponsesNative,
                 namespace_tools: true,
                 image_generation: false,
                 web_search: false,

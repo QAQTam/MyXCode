@@ -3493,6 +3493,7 @@ fn core_turn_item_into_thread_item_converts_supported_variants() {
         )]
         .into_iter()
         .collect(),
+        tool_name: Some("write_file".to_string()),
         status: Some(codex_protocol::protocol::PatchApplyStatus::Completed),
         auto_approved: None,
         stdout: Some("Done!".to_string()),
@@ -3509,6 +3510,7 @@ fn core_turn_item_into_thread_item_converts_supported_variants() {
                 diff: "hello\n".to_string(),
             }],
             status: PatchApplyStatus::Completed,
+            tool_name: Some("write_file".to_string()),
         }
     );
 

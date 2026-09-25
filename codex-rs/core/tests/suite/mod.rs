@@ -146,6 +146,7 @@ mod multi_agent_resume;
 mod multi_agent_tool_descriptions;
 #[cfg(unix)]
 mod multi_exec_server_sandbox;
+mod multiadapt_conformance;
 mod network_approval;
 mod openai_file_mcp;
 mod otel;

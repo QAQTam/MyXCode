@@ -20,6 +20,7 @@ fn wrapped_added_code_keeps_indentation_and_graphemes_when_copied_and_resized() 
             },
         )]),
         Path::new("/project"),
+        /*tool_name*/ None,
     );
     let layout = TextLayout::new(
         patch.display_hyperlink_lines(/*width*/ 40),
@@ -44,6 +45,7 @@ fn annotated_diff_preserves_the_existing_hard_wrapped_visual_output() {
         &changes,
         Path::new("/project"),
         /*wrap_cols*/ 40,
+        /*tool_name*/ None,
     );
     let area = Rect::new(
         /*x*/ 0, /*y*/ 0, /*width*/ 40, /*height*/ 8,
@@ -63,6 +65,7 @@ fn updated_diff_copy_includes_signs_but_no_line_number_gutters() {
             move_path: None,
         })]),
         Path::new("/project"),
+        /*tool_name*/ None,
     );
     let layout = TextLayout::new(
         patch.display_hyperlink_lines(/*width*/ 20),
